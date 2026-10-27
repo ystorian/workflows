@@ -1,8 +1,14 @@
-# .github/workflows/changes.yaml
+# .github/workflows/detect_changes.yaml
 
 # Reusable job to detect relevant file changes.
 #
-# It uses `dorny/paths-filter` with the `.github/filters.yaml` file of the calling repository.
+# Actions used:
+# - [dorny/paths-filter](https://github.com/dorny/paths-filter)
+#
+# Configuration:
+# - `.github/filters.yaml`
+#
+# Returns:
 # - On push: `run` is the result of the `filter` input.
 # - On other events: `run` is always `true`.
 
