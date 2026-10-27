@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+#
+# .githooks/pre-commit
+#
+# Enable this pre-commit script with `just enable_githooks`.
+
+# .just/git.just
+just precommit_just
+
