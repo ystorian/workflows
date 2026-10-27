@@ -40,6 +40,7 @@ jobs:
         ${{ steps.filter.outcome != 'success'
         || contains(steps.filter.outputs.changes, format('"{0}"', inputs.filter)) }}
     steps:
+
       - name: Checkout the source
         if: github.event_name == 'push'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

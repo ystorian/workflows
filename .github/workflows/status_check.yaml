@@ -1,11 +1,7 @@
 # .github/workflows/status_check.yaml
 
-# Reusable job to give one required status check for a workflow.
-#
-# Branch protection can then require only this check.
-# The caller sends its `needs` context as JSON.
-# This workflow cannot read the jobs of the caller.
-#
+# Reusable job for the final status check in a workflow.
+##
 # Returns:
 # - Failure when a job in `needs` failed or was cancelled.
 # - Success when all jobs passed or were skipped.
@@ -24,9 +20,10 @@ permissions: {}
 
 jobs:
   status:
-    name: Validate
+    name: Status check
     runs-on: ubuntu-slim
     steps:
+
       - name: Validate jobs status
         env:
           NEEDS: ${{ inputs.needs }}
