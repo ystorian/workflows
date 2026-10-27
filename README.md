@@ -4,7 +4,7 @@ Reusable GitHub Actions workflows for Ystorian repositories.
 
 ## Detect changes
 
-The `changes.yaml` workflow detects relevant file changes with
+The `detect_changes.yaml` workflow detects relevant file changes with
 [`dorny/paths-filter`](https://github.com/dorny/paths-filter).
 It reads the `.github/filters.yaml` file of the calling repository.
 
@@ -14,7 +14,7 @@ It reads the `.github/filters.yaml` file of the calling repository.
 ```yaml
 jobs:
   changes:
-    uses: ystorian/workflows/.github/workflows/changes.yaml@<sha> # v1.0.0
+    uses: ystorian/workflows/.github/workflows/detect_changes.yaml@main
     permissions:
       contents: read
     with:
@@ -25,4 +25,25 @@ jobs:
     if: needs.changes.outputs.run == 'true'
 ```
 
-Pin the workflow to a commit SHA. Update it with `pinact run --update`.
+## Status check
+
+The `status_check.yaml` workflow gives one required status check for a workflow.
+It fails when a job in `needs` failed or was cancelled.
+Skipped jobs pass.
+
+```yaml
+jobs:
+  status:
+    name: Status check
+    needs: [changes, check, test]
+    if: always()
+    uses: ystorian/workflows/.github/workflows/status_check.yaml@main
+    with:
+      needs: ${{ toJSON(needs) }}
+```
+
+In branch protection, require only `Status check / Validate`.
+
+## Pinning
+
+Pin the workflows to a commit SHA. Update them with `just update_actions`.
