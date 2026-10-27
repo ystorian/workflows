@@ -1,0 +1,50 @@
+# .github/workflows/changes.yaml
+
+# Reusable job to detect relevant file changes.
+#
+# It uses `dorny/paths-filter` with the `.github/filters.yaml` file of the calling repository.
+# - On push: `run` is the result of the `filter` input.
+# - On other events: `run` is always `true`.
+
+name: Detect changes
+
+on:
+  workflow_call:
+    inputs:
+      filter:
+        description: Filter name in `.github/filters.yaml`.
+        type: string
+        default: ci
+    outputs:
+      run:
+        description: True when the filter matches.
+        value: ${{ jobs.changes.outputs.run }}
+
+permissions: {}
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    outputs:
+      # `changes` is a JSON list of matched filters.
+      run: >-
+        ${{ steps.filter.outcome != 'success'
+        || contains(steps.filter.outputs.changes, format('"{0}"', inputs.filter)) }}
+    steps:
+      - name: Checkout the source
+        if: github.event_name == 'push'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect file changes based on filters.yaml
+        if: github.event_name == 'push'
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          predicate-quantifier: 'every'
+          filters: .github/filters.yaml
