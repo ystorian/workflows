@@ -1,0 +1,40 @@
+# .github/workflows/status_check.yaml
+
+# Reusable job for the final status check in a workflow.
+##
+# Returns:
+# - Failure when a job in `needs` failed or was cancelled.
+# - Success when all jobs passed or were skipped.
+
+name: Status check
+
+on:
+  workflow_call:
+    inputs:
+      needs:
+        description: The `needs` context of the caller, as JSON.
+        type: string
+        required: true
+
+permissions: {}
+
+jobs:
+  status:
+    name: Status check
+    runs-on: ubuntu-slim
+    steps:
+
+      - name: Validate jobs status
+        env:
+          NEEDS: ${{ inputs.needs }}
+          # `.*.result` lists the result of each job.
+          FAILED: >-
+            ${{ contains(fromJSON(inputs.needs).*.result, 'failure')
+            || contains(fromJSON(inputs.needs).*.result, 'cancelled') }}
+        run: |
+          echo "$NEEDS"
+          if [ "$FAILED" = "true" ]; then
+            echo "::error::A required CI job failed or was cancelled."
+            exit 1
+          fi
+          echo "All required CI jobs passed or were skipped."

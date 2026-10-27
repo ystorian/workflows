@@ -29,6 +29,7 @@ audit_actions fast fix: check_command_zizmor
 	echo {{ CYAN }}Audit actions in {{ GREEN }}.github/workflows/*.yaml{{ NORMAL }}
 
 	{{ if fast { echo(info('Skipping workflows that were auditted today')) } }}
+	{{ if !fast { echo(info(['Use', BOLD + '--fast', 'to skip for today'])) } }}
 	{{ if fix { echo(info('Fixing workflows with all fixes, including unsafe fixes')) } }}
 
 	if [ -d ".github/workflows" ]; then
@@ -49,15 +50,16 @@ audit_actions fast fix: check_command_zizmor
 	fi
 
 # Check actions for pinned versions
+[arg('fast', long='fast', flag, help='Cache the result for today')]
 [group('GitHub')]
 [script]
-check_actions:
+check_actions fast:
 	echo {{ CYAN }}Check actions in {{ GREEN }}.github/workflows/*.yaml{{ NORMAL }}
 
 	if [ -n "${CI:-}" ]; then
 		just pinact;
 	else
-		just pinact --fast;
+		just pinact {{ if fast { '--fast' } }};
 	fi
 
 	echo {{ done('') }}
@@ -94,6 +96,7 @@ pinact update no_cooldown fast: check_command_pinact
 	{{ if no_cooldown { echo(warning(['No cooldown period:', BOLD + 'Review updated actions'])) } }}
 	{{ if !no_cooldown { echo(info(['Cooldown period from', BOLD + pinact_config])) } }}
 	{{ if fast { echo(info('Skipping workflows that were checked today')) } }}
+	{{ if !fast { echo(info(['Use', BOLD + '--fast', 'to skip for today'])) } }}
 
 	if [ ! -f "{{ pinact_config }}" ]; then
 		echo {{ warning(['Config file not found:', BOLD + pinact_config]) }};
