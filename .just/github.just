@@ -1,0 +1,351 @@
+# @template/.just/github.just
+
+# Variables.
+# Return the repository name.
+repo := if which("gh") == [] { '' } else { shell("gh repo view --json name --jq '.name'") }
+
+# Return the repository owner (organization).
+owner := if which("gh") == [] { '' } else { shell("gh repo view --json owner --jq '.owner.login'") }
+
+# Return the GitHub user name.
+user := if which("gh") == [] { '' } else { shell("gh api user --jq '.login'") }
+
+# GitHub auth token.
+github_token := if env('GITHUB_TOKEN', '') != '' { env('GITHUB_TOKEN') } else if which("gh") == [] { '' } else { shell('gh auth token 2>/dev/null || echo ""') }
+
+# Name of the CI job required by the `status check` ruleset.
+status_check := 'Status check'
+
+# Pinact config file..
+pinact_config := '.github/pinact.yaml'
+
+# Audit actions
+[arg('fix', long='fix', flag, help='Fix findings')]
+[arg('fast', long='fast', flag, help='Cache the result for 1 day')]
+[group('GitHub')]
+[no-exit-message]
+[script]
+audit_actions fast fix: check_command_zizmor
+	echo {{ CYAN }}Audit actions in {{ GREEN }}.github/workflows/*.yaml{{ NORMAL }}
+
+	{{ if fast { echo(info('Skipping workflows that were auditted today')) } }}
+	{{ if fix { echo(info('Fixing workflows with all fixes, including unsafe fixes')) } }}
+
+	if [ -d ".github/workflows" ]; then
+		for workflow in .github/workflows/*.y*ml; do
+			if [ ! {{ fast }} ] ||
+				[ "$(date -r "$workflow" +%F)" != "{{ datetime('%Y-%m-%d') }}" ]; then
+				zizmor --no-progress \
+					{{ if github_token != '' { '--gh-token ' + github_token } }} \
+					{{ if fix { '--fix=all' } }} \
+					--persona=auditor "$workflow" \
+				{{ if fast { '&& touch "$workflow"' } }};
+			else
+				echo {{ dim(YELLOW + ITALIC + "$workflow") }};
+			fi;
+		done
+	else
+		echo {{ warning('No workflow found in .github/workflows') }};
+	fi
+
+# Check actions for pinned versions
+[group('GitHub')]
+[script]
+check_actions:
+	echo {{ CYAN }}Check actions in {{ GREEN }}.github/workflows/*.yaml{{ NORMAL }}
+
+	if [ -n "${CI:-}" ]; then
+		just pinact;
+	else
+		just pinact --fast;
+	fi
+
+	echo {{ done('') }}
+
+# Update and pin actions
+[group('GitHub')]
+update_actions:
+	echo {{ CYAN }}Update and pin actions in {{ YELLOW }}.github/workflows/*.yaml{{ NORMAL }}
+
+	just pinact --update
+
+	echo {{ done('') }}
+
+# Update and pin actions without a cooldown period
+[group('GitHub')]
+[private]
+update_actions_latest:
+	echo {{ CYAN }}Update and pin actions in {{ YELLOW }}.github/workflows/*.yaml{{ NORMAL }}
+
+	just pinact --update --no-cooldown
+
+	echo {{ done('') }}
+
+# Main pinact recipe
+[arg('fast', long='fast', flag, help='Cache the result for today')]
+[arg('update', long='update', flag, help='Update and pin actions with a cooldown')]
+[arg('no_cooldown', long='no-cooldown', flag, help='No cooldown for updates')]
+[env("GITHUB_TOKEN", github_token)]
+[group('GitHub')]
+[no-exit-message]
+[private]
+[script]
+pinact update no_cooldown fast: check_command_pinact
+	{{ if no_cooldown { echo(warning(['No cooldown period:', BOLD + 'Review updated actions'])) } }}
+	{{ if !no_cooldown { echo(info(['Cooldown period from', BOLD + pinact_config])) } }}
+	{{ if fast { echo(info('Skipping workflows that were checked today')) } }}
+
+	if [ ! -f "{{ pinact_config }}" ]; then
+		echo {{ warning(['Config file not found:', BOLD + pinact_config]) }};
+	fi
+
+	if [ -d ".github/workflows" ]; then
+		echo {{ dim(shell('pinact --version 2>/dev/null')) }};
+		for workflow in .github/workflows/*.y*ml; do
+			if [ {{ no_cooldown }} ] || [ ! {{ fast }} ] ||
+				[ "$(date -r "$workflow" +%F)" != "{{ datetime('%Y-%m-%d') }}" ]; then
+				pinact run "$workflow" --log-level warn \
+					{{ if update { '--update' } else { '--check' } }} \
+					{{ if no_cooldown { '--min-age 0' } }} \
+				{{ if !fast { '&& touch "$workflow"' } }};
+			else
+				echo {{ dim(YELLOW + ITALIC + "$workflow") }};
+			fi;
+		done
+	else
+		echo {{ warning('No actions found in .github/workflows') }};
+	fi
+
+# List action secrets for the environment
+[group('GitHub')]
+env_list_secrets env='production' repo=repo:
+	echo {{ CYAN }}List the {{ BOLD }}action secrets{{ NORMAL + CYAN }} for the \
+		{{ YELLOW + env + NORMAL + CYAN }} environment in {{ GREEN + owner + '/' + repo + NORMAL }}
+
+	just check_command_gh
+
+	gh \
+		secret \
+		list \
+		--env {{ env }} \
+		--repo {{ owner + '/' + repo }} \
+		--app actions
+
+	echo {{ done('') }}
+
+# List all secrets not environment restricted
+[group('GitHub')]
+env_list_secrets_all repo=repo:
+	echo {{ CYAN }}List {{ BOLD }}all secrets{{ NORMAL + CYAN }} that are \
+		{{ YELLOW + 'not environment restricted' + NORMAL + CYAN }} in \
+		{{ GREEN + owner + '/' + repo + NORMAL }}
+
+	just check_command_gh
+
+	gh \
+		secret \
+		list \
+		--repo {{ owner + '/' + repo }}
+
+	echo {{ warning('Secrets should be restricted to environments!') }}
+
+	echo {{ done('') }}
+
+# Add an action secret to an environment
+[group('GitHub')]
+set_env_secret env secret: check_command_gh
+	echo {{ CYAN }}Add action secret to {{ BOLD + owner + '/' + repo + NORMAL }}
+	echo {{ info(['Environment:', BOLD + env]) }}
+	echo {{ info(['Secret:', BOLD + uppercase(secret)]) }}
+
+	gh secret set {{ uppercase(secret) }} --env {{ env }} --repo {{ owner + '/' + repo }} \
+		--app actions
+
+	echo {{ done([secret, env]) }}
+
+# Create an environment
+[arg('env', long='env', help='Environment name')]
+[arg('repo', long='repo', value=repo, help='Repository name')]
+[group('GitHub')]
+create_env env repo=repo: check_command_gh
+	echo {{ CYAN }}Create the {{ YELLOW + env + CYAN }} environment in \
+		{{ GREEN + owner + '/' + repo + NORMAL }}
+
+	gh api --method PUT repos/{{ owner }}/{{ repo }}/environments/{{ env }} --jq '.created_at'
+
+	echo {{ CYAN }}Set a custom branch policy{{ NORMAL }}
+	gh api --method PUT repos/{{ owner }}/{{ repo }}/environments/{{ env }} \
+		--field deployment_branch_policy[protected_branches]=false \
+		--field deployment_branch_policy[custom_branch_policies]=true \
+		--jq '.deployment_branch_policy.custom_branch_policies'
+
+	echo {{ CYAN }}Set the branch protection on {{ GREEN + main + NORMAL }}
+	gh api --method POST --field name=main --jq '.total_count' \
+		repos/{{ owner }}/{{ repo }}/environments/{{ env }}/deployment-branch-policies
+
+	echo {{ done([repo, env]) }}
+
+# List the environments
+[group('GitHub')]
+list_envs repo=repo: check_command_gh
+	echo {{ CYAN }}List environments in {{ GREEN + owner }}/{{ BOLD + repo + NORMAL }}
+
+	gh api repos/{owner}/{{ repo }}/environments --jq '.environments[].name'
+
+	echo {{ done(repo) }}
+
+# Check the security policies on a repository
+[group('GitHub')]
+[no-exit-message]
+check_rulesets_repo repo=repo: check_command_gh check_command_jq
+	echo {{ CYAN }}Check {{ BOLD }}rulesets{{ NORMAL + CYAN }} in \
+	{{ YELLOW + owner }}/{{ BOLD + repo + NORMAL }}
+
+	just check_main_branch {{ owner }} {{ repo }}
+	just check_branch_protection {{ owner }} {{ repo }}
+	just check_rulesets {{ owner }} {{ repo }}
+
+	echo {{ done('') }}
+
+# Check the security policies all organization repositories
+[group('GitHub')]
+[no-exit-message]
+[script]
+check_rulesets_org owner=owner: check_command_gh check_command_jq
+	echo {{ CYAN }}Check {{ YELLOW + owner + CYAN }} rulesets{{ NORMAL }}
+
+	failed='';
+
+	for repo_name in $(gh repo list {{ owner }} --limit 200 --no-archived --json name \
+		--jq '.[].name' | sort); do
+		echo "\n{{ YELLOW + BOLD }}$repo_name:{{ NORMAL }}";
+		just check_main_branch {{ owner }} $repo_name;
+		just check_branch_protection {{ owner }} $repo_name;
+		just check_rulesets {{ owner }} "$repo_name" || failed="${failed:+$failed }$repo_name";
+	done;
+
+	if [ -n "$failed" ]; then
+		echo "\n";
+		echo {{ error(['Missing rulesets in these repositories:']) }};
+		for failed_repo in $failed; do
+			echo "{{ YELLOW }}  $failed_repo";
+		done;
+	else
+		echo {{ done(owner) }};
+	fi
+
+# Check the rulesets
+[group('GitHub')]
+[no-exit-message]
+[private]
+[script]
+check_rulesets owner=owner repo=repo:
+	if ! rules=$(gh api repos/{{ owner }}/{{ repo }}/rules/branches/{{ main }} 2>/dev/null); then
+		rules='[]';
+	fi;
+
+	missing='';
+	for rule in required_signatures pull_request required_status_checks deletion non_fast_forward required_linear_history;
+	do
+		source=$(printf '%s' "$rules" | jq -r --arg rule "$rule" '[.[]|select(.type==$rule)|.ruleset_source_type]|unique|join(", ")');
+		if [ -n "$source" ]; then
+			if [ "$source" = "Organization" ]; then
+				echo {{ dim([GREEN + '$rule', 'from', GREEN + '$source']) }};
+			else
+				echo {{ dim([GREEN + '$rule', 'from', YELLOW + '$source']) }};
+			fi;
+		else
+			echo {{ dim([NORMAL + RED + BOLD + '$rule', RED + 'is not set']) }};
+			missing="$missing $rule";
+		fi;
+	done;
+
+	if printf '%s' "$rules" | jq -e 'any(.[]; .type=="required_status_checks")' >/dev/null; then
+		if printf '%s' "$rules" | jq -e --arg check '{{ status_check }}' 'any(.[];.type=="required_status_checks" and any(.parameters.required_status_checks[]?; .context==$check))' >/dev/null; then
+			echo {{ dim([GREEN + status_check, 'is required']) }};
+		else
+			echo {{ warning([status_check, 'is not a required check']) }};
+			missing="$missing status_check";
+		fi;
+		if printf '%s' "$rules" | jq -e 'any(.[];.type=="required_status_checks" and .parameters.strict_required_status_checks_policy==true)' >/dev/null; then
+			echo {{ dim([GREEN + 'Branches must be up to date before merging']) }};
+		else
+			echo {{ warning('Branches can be out of date before merging') }};
+			missing="$missing strict_status_checks";
+		fi;
+	fi;
+
+	if ! ids=$(gh api repos/{{ owner }}/{{ repo }}/rulesets --jq '.[].id' 2>/dev/null); then
+		ids='';
+	fi;
+
+	for id in $ids; do
+		ruleset=$(gh api repos/{{ owner }}/{{ repo }}/rulesets/"$id" 2>/dev/null);
+		name=$(printf '%s' "$ruleset" | jq -r '.name');
+		enforcement=$(printf '%s' "$ruleset" | jq -r '.enforcement');
+
+		if [ "$enforcement" != active ]; then
+			echo {{ warning(['The ruleset', BOLD + '$name', 'is', BOLD + '$enforcement']) }};
+		fi;
+
+		bypass=$(printf '%s' "$ruleset" | jq -r '[.bypass_actors[]?|select(.bypass_mode=="always")|.actor_type|select(.!="OrganizationAdmin")]|join(", ")');
+		if [ -n "$bypass" ]; then
+			echo {{ warning(['The ruleset', BOLD + '$name', 'is bypassed by', BOLD + '$bypass']) }};
+		fi;
+	done;
+
+	if [ -n "$missing" ]; then
+		exit 1;
+	fi
+
+# Check the branch protection status
+[group('GitHub')]
+[private]
+[script]
+check_branch_protection owner=owner repo=repo:
+	if protection=$(gh api repos/{{ owner }}/{{ repo }}/branches/{{ main }}/protection 2>/dev/null); then
+		echo {{ warning('Classic branch protection should be a ruleset') }};
+		enabled=$(printf '%s' "$protection" |
+			jq -r '[to_entries[]|select(.value|type=="object")|select(.value.enabled)|.key]|join(" ")');
+		checks=$(printf '%s' "$protection" |
+			jq -r '(.required_status_checks.contexts//[])|join(", ")');
+		echo {{ dim(['Enabled:', BOLD + '${enabled:-none}']) }};
+		echo {{ dim(['Required checks:', BOLD + '${checks:-none}']) }};
+	fi
+
+# Check the name of the default branch
+[group('GitHub')]
+[private]
+[script]
+check_main_branch owner=owner repo=repo:
+	default_branch=$(gh repo view {{ owner }}/{{ repo }} --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null);
+
+	if [ "$default_branch" != "{{ main }}" ]; then
+		echo {{ error(['Main branch in', BOLD + owner + '/' + repo, 'is', RED + "$default_branch"]) }};
+	fi
+
+## Check commands.
+
+# Check if `gh` is available
+[group('GitHub')]
+[private]
+check_command_gh:
+	just check_command gh 'brew install gh' 'winget install --id GitHub.cli'
+
+# Check if `jq` is available
+[group('GitHub')]
+[private]
+check_command_jq:
+	just check_command jq 'brew install jq' 'winget install --id jqlang.jq'
+
+# Check if `pinact` is available
+[group('GitHub')]
+[private]
+check_command_pinact:
+	just check_command pinact 'brew install pinact' 'winget install --id suzuki-shunsuke.pinact'
+
+# Check if `zizmor` is available
+[group('GitHub')]
+[private]
+check_command_zizmor:
+	just check_command zizmor 'just install_cargo_tools' 'just install_cargo_tools'
