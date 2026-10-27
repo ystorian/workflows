@@ -1,4 +1,4 @@
-# Workflows
+# <img src="https://raw.githubusercontent.com/ystorian/workflows/main/workflows.svg" width="48" align="absmiddle" alt="Workflows logo"> Workflows
 
 Reusable GitHub Actions workflows for Ystorian repositories.
 
