@@ -1,0 +1,50 @@
+# .github/workflows/cargo_cache_cleanup.yaml
+
+# Reusable job to delete the superseded Cargo caches of a branch.
+#
+# Expects cache keys like `cargo-<os>-<arch>-<rustc>-<lock>[-<run_id>]`.
+#
+# Returns:
+# - Keeps the newest cache for each group of `fields` leading key fields.
+# - Deletes the other `cargo-` caches of the current ref.
+
+name: Cargo cache cleanup
+
+on:
+  workflow_call:
+    inputs:
+      fields:
+        description: Number of leading key fields in a group.
+        type: number
+        default: 4
+
+permissions: {}
+
+jobs:
+  cleanup:
+    name: Cargo cache cleanup
+    # This needs the `gh` CLI, not available on `ubuntu-slim`.
+    runs-on: ubuntu-26.04-arm
+    permissions:
+      actions: write # Required to list and delete the cache entries.
+    steps:
+
+      - name: Delete the superseded Cargo caches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          FIELDS: ${{ inputs.fields }}
+        run: |
+          gh api "repos/${REPO}/actions/caches?per_page=100&ref=${REF}" --paginate \
+            --jq '.actions_caches[] | select(.key | startswith("cargo-")) | [.id, .key, .created_at] | @tsv' \
+            | sort -k3 -r \
+            | awk -F'\t' -v n="$FIELDS" '{
+                split($2, f, "-"); g = f[1]
+                for (i = 2; i <= n; i++) g = g "-" f[i]
+                if (seen[g]++) print $1, $2
+              }' \
+            | while read -r id key; do
+                echo "Deleting the superseded cache ${key}"
+                gh api -X DELETE "repos/${REPO}/actions/caches/${id}"
+              done

@@ -2,9 +2,6 @@
 
 ### Variables.
 
-# The default branch name for all repos.
-main := 'main'
-
 # Architecture, using normalized output from `arch()`.
 # - x86_64  -> x64
 # - aarch64 -> arm64

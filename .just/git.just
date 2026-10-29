@@ -161,15 +161,15 @@ check_tag tag allow_dirty:
 	fi
 
 	# Local branch is `main`.
-	if [ "$(git branch --show-current)" != "{{ main }}" ]; then
-		echo {{ error(['Not on the', GREEN + main, 'branch:', RED + shell('git branch --show-current')]) }};
+	if [ "$(git branch --show-current)" != "main" ]; then
+		echo {{ error(['Not on the', GREEN + 'main', 'branch:', RED + shell('git branch --show-current')]) }};
 		exit 1;
 	fi
 
 	# Local branch is remote branch.
-	git fetch --quiet origin {{ main }}
-	if [ "$(git rev-parse {{ main }})" != "$(git rev-parse origin/{{ main }})" ]; then
-		echo {{ error(['The local', BOLD + main, 'branch differs from', BOLD + 'origin/' + main]) }};
+	git fetch --quiet origin main
+	if [ "$(git rev-parse main)" != "$(git rev-parse origin/main)" ]; then
+		echo {{ error(['The local', BOLD + 'main', 'branch differs from', BOLD + 'origin/main']) }};
 		exit 1;
 	fi
 
