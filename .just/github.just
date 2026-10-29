@@ -13,8 +13,11 @@ user := if which("gh") == [] { '' } else { shell("gh api user --jq '.login'") }
 # GitHub auth token.
 github_token := if env('GITHUB_TOKEN', '') != '' { env('GITHUB_TOKEN') } else if which("gh") == [] { '' } else { shell('gh auth token 2>/dev/null || echo ""') }
 
-# Name of the CI job required by the `status check` ruleset.
-status_check := 'Status check'
+# Name of the check required by the `status check` ruleset.
+status_check := 'Workflows / Status check'
+
+# GitHub Actions app ID for required status checks.
+github_actions_id := '15368'
 
 # Pinact config file..
 pinact_config := '.github/pinact.yaml'
@@ -182,7 +185,7 @@ create_env env repo=repo: check_command_gh
 		--field deployment_branch_policy[custom_branch_policies]=true \
 		--jq '.deployment_branch_policy.custom_branch_policies'
 
-	echo {{ CYAN }}Set the branch protection on {{ GREEN + main + NORMAL }}
+	echo {{ CYAN }}Set the branch protection on {{ GREEN + 'main' + NORMAL }}
 	gh api --method POST --field name=main --jq '.total_count' \
 		repos/{{ owner }}/{{ repo }}/environments/{{ env }}/deployment-branch-policies
 
@@ -243,7 +246,7 @@ check_rulesets_org owner=owner: check_command_gh check_command_jq
 [private]
 [script]
 check_rulesets owner=owner repo=repo:
-	if ! rules=$(gh api repos/{{ owner }}/{{ repo }}/rules/branches/{{ main }} 2>/dev/null); then
+	if ! rules=$(gh api repos/{{ owner }}/{{ repo }}/rules/branches/main 2>/dev/null); then
 		rules='[]';
 	fi;
 
@@ -306,7 +309,7 @@ check_rulesets owner=owner repo=repo:
 [private]
 [script]
 check_branch_protection owner=owner repo=repo:
-	if protection=$(gh api repos/{{ owner }}/{{ repo }}/branches/{{ main }}/protection 2>/dev/null); then
+	if protection=$(gh api repos/{{ owner }}/{{ repo }}/branches/main/protection 2>/dev/null); then
 		echo {{ warning('Classic branch protection should be a ruleset') }};
 		enabled=$(printf '%s' "$protection" |
 			jq -r '[to_entries[]|select(.value|type=="object")|select(.value.enabled)|.key]|join(" ")');
@@ -323,9 +326,49 @@ check_branch_protection owner=owner repo=repo:
 check_main_branch owner=owner repo=repo:
 	default_branch=$(gh repo view {{ owner }}/{{ repo }} --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null);
 
-	if [ "$default_branch" != "{{ main }}" ]; then
+	if [ "$default_branch" != "main" ]; then
 		echo {{ error(['Main branch in', BOLD + owner + '/' + repo, 'is', RED + "$default_branch"]) }};
 	fi
+
+# Set the name of the required status check.
+[group('GitHub')]
+[no-exit-message]
+[script]
+set_status_check repo=repo: check_command_gh check_command_jq
+	echo {{ CYAN }}Set the required status check in {{ YELLOW + owner + '/' + BOLD + repo + NORMAL }}
+	echo {{ info(['Status check name:', BOLD + status_check]) }}
+
+	ids=$(gh api repos/{{ owner }}/{{ repo }}/rulesets \
+		--jq '.[]|select(.source_type=="Repository")|.id');
+
+	updated='';
+	for id in $ids; do
+		ruleset=$(gh api repos/{{ owner }}/{{ repo }}/rulesets/"$id");
+		if ! printf '%s' "$ruleset" |
+			jq -e 'any(.rules[]; .type=="required_status_checks")' >/dev/null; then
+			continue;
+		fi;
+
+		# Replace all required checks with one check.
+		printf '%s' "$ruleset" |
+			jq --arg check '{{ status_check }}' --argjson app {{ github_actions_id }} \
+				'{rules: [.rules[] | if .type=="required_status_checks"
+					then .parameters.required_status_checks=[{context: $check, integration_id: $app}]
+					else . end]}' |
+			gh api --method PUT repos/{{ owner }}/{{ repo }}/rulesets/"$id" --input - \
+				--jq '.name' >/dev/null;
+
+		name=$(printf '%s' "$ruleset" | jq -r '.name');
+		echo {{ dim(['Updated ruleset', GREEN + '$name']) }};
+		updated=1;
+	done;
+
+	if [ -z "$updated" ]; then
+		echo {{ error('No repository ruleset requires status checks') }};
+		exit 1;
+	fi
+
+	echo {{ done(repo) }}
 
 ## Check commands.
 

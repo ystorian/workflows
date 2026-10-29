@@ -14,6 +14,7 @@ It reads the `.github/filters.yaml` file of the calling repository.
 ```yaml
 jobs:
   changes:
+    name: Workflows
     uses: ystorian/workflows/.github/workflows/detect_changes.yaml@main
     permissions:
       contents: read
@@ -34,7 +35,7 @@ Skipped jobs pass.
 ```yaml
 jobs:
   status:
-    name: Status check
+    name: Workflows
     needs: [changes, check, test]
     if: always()
     uses: ystorian/workflows/.github/workflows/status_check.yaml@main
@@ -42,7 +43,28 @@ jobs:
       needs: ${{ toJSON(needs) }}
 ```
 
-In branch protection, require only `Status check / Validate`.
+In branch protection, require only `Workflows / Status check`.
+
+## Cargo cache cleanup
+
+The `cargo_cache_cleanup.yaml` workflow deletes the superseded Cargo caches of the current ref.
+It keeps the newest cache for each group of key fields.
+
+The cache keys must look like `cargo-<os>-<arch>-<rustc>-<lock>[-<run_id>]`.
+The default group is the first 4 fields: `cargo-<os>-<arch>-<rustc>`.
+
+```yaml
+jobs:
+  cargo-cache-cleanup:
+    name: Workflows
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    uses: ystorian/workflows/.github/workflows/cargo_cache_cleanup.yaml@main
+    permissions:
+      actions: write # Required to list and delete the cache entries.
+    with:
+      fields: 4 # Optional, default is `4`.
+```
 
 ## Pinning
 
