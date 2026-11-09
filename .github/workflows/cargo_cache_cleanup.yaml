@@ -27,6 +27,8 @@ jobs:
     runs-on: ubuntu-26.04-arm
     permissions:
       actions: write # Required to list and delete the cache entries.
+    timeout-minutes: 1
+
     steps:
 
       - name: Delete the superseded Cargo caches

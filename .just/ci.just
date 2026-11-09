@@ -3,11 +3,12 @@
 # Run the CI tests like in `.github/workflows/ci-rust.yaml`
 [group('CI')]
 ci:
-	echo {{ CYAN }}Run all {{ GREEN }}CI{{ CYAN }} checks{{ NORMAL }}
+	echo {{ title(['Run all', BOLD + 'CI', 'checks']) }}
 
 	# Preparation.
 	just lint_just
 	just check_actions
 	just audit_actions
+	just check_typos
 
 	echo {{ done('') }}
