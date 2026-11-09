@@ -537,12 +537,17 @@ add_headers_ext ext prefix suffix=[]:
 # Check for typos
 [group('Utils')]
 [no-exit-message]
+[script]
 check_typos: check_command_typos
-	echo {{ title('Check for typos') }}
+	echo {{ title(['Check for', BOLD + 'typos']) }}
 
-	if [ ! -f ".typos.toml" ]; then \
-		echo {{ error(['Configuration file not found:', BOLD + '.typos.toml']) }}; \
-		exit 1; \
+	if [ ! -f ".typos.toml" ]; then
+		if [ -f "Cargo.toml" ]; then
+			echo {{ info(['Using configuration from', BOLD + 'Cargo.toml']) }};
+		else
+			echo {{ error(['Configuration file not found:', BOLD + '.typos.toml']) }};
+			exit 1;
+		fi;
 	fi
 
 	typos
