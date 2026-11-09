@@ -2,9 +2,7 @@
 
 # Reusable job to send a `repository_dispatch` event to the Ynfra repository.
 #
-# The dispatch token is the `YNFRA_DISPATCH_TOKEN` environment secret. A caller job with `uses:`
-# cannot set `environment:`, and cannot pass environment secrets. This job sets the environment and
-# reads the secret. The name is fixed: a computed name sends all the secrets to the runner.
+# The dispatch token is the `YNFRA_DISPATCH_TOKEN` environment secret.
 #
 # Returns:
 # - Sends the `event` event to `<owner>/ynfra`.
@@ -22,6 +20,10 @@ on:
         description: Environment that holds the token.
         type: string
         default: production
+    secrets:
+      YNFRA_DISPATCH_TOKEN:
+        description: Dispatch token, an environment secret.
+        required: true
 
 permissions: {}
 
