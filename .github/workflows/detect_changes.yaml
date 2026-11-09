@@ -39,6 +39,8 @@ jobs:
       run: >-
         ${{ steps.filter.outcome != 'success'
         || contains(steps.filter.outputs.changes, format('"{0}"', inputs.filter)) }}
+    timeout-minutes: 1
+
     steps:
 
       - name: Checkout the source
