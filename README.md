@@ -88,6 +88,25 @@ jobs:
       timeout: 5 # Optional, default is `5`.
 ```
 
+## Dispatch to Ynfra
+
+The `dispatch_to_ynfra.yaml` workflow sends a `repository_dispatch` event to `<owner>/ynfra`.
+
+The workflow reads the `YNFRA_DISPATCH_TOKEN` secret from the `environment` of the caller repository.
+The caller cannot pass an environment secret.
+
+```yaml
+jobs:
+  dispatch:
+    name: Workflows
+    needs: build
+    uses: ystorian/workflows/.github/workflows/dispatch_to_ynfra.yaml@main
+    permissions:
+      contents: read
+    with:
+      event: restart-ysto
+      environment: production # Optional, default is `production`.
+```
 
 ## Pinning
 
