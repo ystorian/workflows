@@ -92,8 +92,8 @@ jobs:
 
 The `dispatch_to_ynfra.yaml` workflow sends a `repository_dispatch` event to `<owner>/ynfra`.
 
-The workflow reads the `YNFRA_DISPATCH_TOKEN` secret from the `environment` of the caller repository.
-The caller cannot pass an environment secret.
+The `YNFRA_DISPATCH_TOKEN` secret is in the `environment` of the caller repository.
+The caller must pass it by name, otherwise it is empty.
 
 ```yaml
 jobs:
@@ -106,6 +106,8 @@ jobs:
     with:
       event: restart-ysto
       environment: production # Optional, default is `production`.
+    secrets:
+      YNFRA_DISPATCH_TOKEN: ${{ secrets.YNFRA_DISPATCH_TOKEN }}
 ```
 
 ## Pinning
