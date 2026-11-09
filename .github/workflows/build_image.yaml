@@ -1,0 +1,85 @@
+# .github/workflows/build_image.yaml
+
+# Reusable job to build and push a Docker image to ghcr.io.
+#
+# Actions used:
+# - [docker/setup-buildx-action](https://github.com/docker/setup-buildx-action)
+# - [docker/login-action](https://github.com/docker/login-action)
+# - [docker/metadata-action](https://github.com/docker/metadata-action)
+# - [docker/build-push-action](https://github.com/docker/build-push-action)
+#
+# The `.git` directory is excluded by `.dockerignore`. The commit ID is given to the build with the
+# `COMMIT_ID` build argument.
+#
+# Returns:
+# - Pushes `ghcr.io/<owner>/<image>` with the tags from `docker/metadata-action`.
+# - Keeps the build cache in `ghcr.io/<owner>/<image>:buildcache`.
+
+name: Build image
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: Image name in ghcr.io.
+        type: string
+        required: true
+      dockerfile:
+        description: Path to the Dockerfile, default is `<image>.Dockerfile`.
+        type: string
+        default: ''
+      timeout:
+        description: Job timeout in minutes.
+        type: number
+        default: 5
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build the image
+    # Not running on ubuntu-26.04-arm, I think we need to build on x64 to deploy in Exoscale.
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      packages: write # Required to push to GitHub Container Registry (ghcr.io).
+    timeout-minutes: ${{ inputs.timeout }}
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/${{ inputs.image }}
+
+    steps:
+
+      - name: Checkout the source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Skip post-cleanup.
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          context: git # Read metadata from the checkout, not the GitHub API.
+          images: ${{ env.IMAGE }}
+
+      - name: Build and push the Docker image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ inputs.dockerfile || format('{0}.Dockerfile', inputs.image) }}
+          build-args: COMMIT_ID=${{ github.sha }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true

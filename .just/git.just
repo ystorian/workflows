@@ -129,6 +129,14 @@ precommit_just:
 		fi;
 	done
 
+# Git hook pre-commit script for Typos
+[group('Git')]
+[no-exit-message]
+[private]
+[script]
+precommit_typos:
+	typos
+
 # Check if this release can be tagged `v#.#.#`
 [arg('allow_dirty', long='allow-dirty', flag, help='Allow dirty state with uncommitted changes')]
 [group('Git')]

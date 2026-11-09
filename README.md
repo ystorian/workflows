@@ -29,7 +29,7 @@ jobs:
 ## Status check
 
 The `status_check.yaml` workflow gives one required status check for a workflow.
-It fails when a job in `needs` failed or was cancelled.
+It fails when a job in `needs` failed or was canceled.
 Skipped jobs pass.
 
 ```yaml
@@ -65,6 +65,29 @@ jobs:
     with:
       fields: 4 # Optional, default is `4`.
 ```
+
+## Build image
+
+The `build_image.yaml` workflow builds a Docker image and pushes it to `ghcr.io/<owner>/<image>`.
+It gives the commit ID to the build with the `COMMIT_ID` build argument.
+It keeps the build cache in the `buildcache` tag.
+
+```yaml
+jobs:
+  build:
+    name: Workflows
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    uses: ystorian/workflows/.github/workflows/build_image.yaml@main
+    permissions:
+      contents: read
+      packages: write # Required to push to ghcr.io.
+    with:
+      image: ysto
+      dockerfile: ysto.Dockerfile # Optional, default is `<image>.Dockerfile`.
+      timeout: 5 # Optional, default is `5`.
+```
+
 
 ## Pinning
 
