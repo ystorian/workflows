@@ -1,6 +1,6 @@
 # @template/.typos.toml
 
 [files]
-extend-exclude = [".git/**"]
 ignore-hidden = false
 ignore-files = false
+extend-exclude = [".git/**", "dist/**"]

@@ -16,6 +16,9 @@ github_token := if env('GITHUB_TOKEN', '') != '' { env('GITHUB_TOKEN') } else if
 # Name of the check required by the `status check` ruleset.
 status_check := 'Workflows / Status check'
 
+# Property that enables the organization status check ruleset.
+status_check_property := 'require_status_check'
+
 # GitHub Actions app ID for required status checks.
 github_actions_id := '15368'
 
@@ -324,44 +327,60 @@ check_main_branch owner=owner repo=repo:
 		echo {{ error(['Main branch in', BOLD + owner + '/' + repo, 'is', RED + "$default_branch"]) }};
 	fi
 
-# Set the name of the required status check.
+# Require the status check with the organization ruleset
+[arg('clean', long='clean', flag, help='Remove the status check rules from the repository rulesets')]
 [group('GitHub')]
 [no-exit-message]
 [script]
-set_status_check repo=repo: check_command_gh check_command_jq
-	echo {{ title(['Set the required status check in', BOLD + owner + '/' + repo]) }}
-	echo {{ info(['Status check name:', BOLD + status_check]) }}
+set_status_check clean repo=repo: check_command_gh check_command_jq
+	echo {{ title(['Require', BOLD + status_check, 'in', BOLD + owner + '/' + repo]) }}
+
+	# The organization ruleset targets this property.
+	printf '%s' '{"repository_names":["{{ repo }}"],
+		"properties":[{"property_name":"{{ status_check_property }}","value":"true"}]}' |
+		gh api --method PATCH orgs/{{ owner }}/properties/values --input -;
+	echo {{ dim(['Set', GREEN + status_check_property + '=true']) }};
 
 	ids=$(gh api repos/{{ owner }}/{{ repo }}/rulesets --jq '
 		.[]|select(.source_type=="Repository")|.id');
 
-	updated='';
+	found='';
 	for id in $ids; do
 		ruleset=$(gh api repos/{{ owner }}/{{ repo }}/rulesets/"$id");
 		if ! printf '%s' "$ruleset" |
 			jq -e 'any(.rules[]; .type=="required_status_checks")' >/dev/null; then
 			continue;
 		fi;
-
-		# Replace all required checks with one check.
-		printf '%s' "$ruleset" |
-			jq --arg check '{{ status_check }}' --argjson app {{ github_actions_id }} '
-				{rules: [.rules[] | if .type=="required_status_checks"
-				then .parameters.required_status_checks=[{context: $check, integration_id: $app}]
-				else . end]}' |
-			gh api --method PUT repos/{{ owner }}/{{ repo }}/rulesets/"$id" --input - --jq '.name' >/dev/null;
-
 		name=$(printf '%s' "$ruleset" | jq -r '.name');
-		echo {{ dim(['Updated ruleset', GREEN + '$name']) }};
-		updated=1;
+
+		if [ "{{ clean }}" != "true" ]; then
+			echo {{ warning(['Repository ruleset', BOLD + '$name', 'also requires status checks']) }};
+			found=1;
+			continue;
+		fi;
+
+		# Keep the ruleset when it has other rules.
+		rules=$(printf '%s' "$ruleset" |
+			jq '{rules: [.rules[] | select(.type != "required_status_checks")]}');
+		if [ "$(printf '%s' "$rules" | jq '.rules | length')" = "0" ]; then
+			gh api --method DELETE repos/{{ owner }}/{{ repo }}/rulesets/"$id";
+			echo {{ dim(['Deleted ruleset', GREEN + '$name']) }};
+		else
+			printf '%s' "$rules" |
+				gh api --method PUT repos/{{ owner }}/{{ repo }}/rulesets/"$id" --input - >/dev/null;
+			echo {{ dim(['Removed the status check rule from', GREEN + '$name']) }};
+		fi;
 	done;
 
-	if [ -z "$updated" ]; then
-		echo {{ error('No repository ruleset requires status checks') }};
-		exit 1;
+	if [ -n "$found" ]; then
+		echo {{ info(['Use', BOLD + '--clean', 'to remove these status check rules']) }};
 	fi
 
 	echo {{ done(repo) }}
+
+# Show GitHub rate limit and reset time
+get_limit:
+	gh api graphql -f query='{rateLimit{limit,cost,remaining,resetAt}}'
 
 ## Check commands.
 
