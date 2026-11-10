@@ -38,7 +38,7 @@ permissions: {}
 jobs:
   build:
     name: Build the image
-    # Not running on ubuntu-26.04-arm, I think we need to build on x64 to deploy in Exoscale.
+    # Not running on ubuntu-26.04-arm since the built images are deployed on x64.
     runs-on: ubuntu-26.04
     permissions:
       contents: read

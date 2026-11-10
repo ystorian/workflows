@@ -4,6 +4,18 @@ Reusable GitHub Actions workflows for Ystorian repositories.
 
 This is a public repository licensed under the [GNU Affero General Public License v3.0](LICENSE).
 
+## Available workflows
+
+CI:
+- [Detect changes](#detect-changes) Detect relevant file changes to skip unneeded jobs
+	- [Check](#check) Check actions and source code
+	- [Cargo cache cleanup](#cargo-cache-cleanup) Delete superseded Cargo caches
+- [Status check](#status-check) Set the required status check branch protection
+
+Deployment:
+- [Detect changes](#detect-changes) Detect relevant file changes to skip unneeded jobs
+- [Build image](#build-image) Build and push a Docker image
+- [Dispatch to Ynfra](#dispatch-to-ynfra) Send a dispatch event
 
 ## Detect changes
 
@@ -48,6 +60,32 @@ jobs:
 
 In branch protection, require only `Workflows / Status check`.
 
+## Check
+
+The `check.yaml` workflow checks a repository on Linux arm64. It checks Just recipes, typos, and
+actions. More recipes can be added to check for Rust dependencies and other lints.
+
+The caller must have the Just recipes `check_just`, `check_typos`, `check_actions`, and
+`audit_actions`.
+
+On failure, it cancels the whole workflow run.
+
+```yaml
+jobs:
+  check:
+    name: Workflows
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    uses: ystorian/workflows/.github/workflows/check.yaml@main
+    permissions:
+      actions: write # Required to cancel the `test` jobs on failure.
+      contents: read
+    with:
+      tools: flynt # Comma separated optional tools to install.
+      recipes: check_rust flynt # Space separated optional Just recipes to run.
+      timeout: 1 # Optional, default is `1`.
+```
+
 ## Cargo cache cleanup
 
 The `cargo_cache_cleanup.yaml` workflow deletes the superseded Cargo caches of the current ref.
@@ -86,8 +124,8 @@ jobs:
       contents: read
       packages: write # Required to push to ghcr.io.
     with:
-      image: ysto
-      dockerfile: ysto.Dockerfile # Optional, default is `<image>.Dockerfile`.
+      image: app
+      dockerfile: app.Dockerfile # Optional, default is `<image>.Dockerfile`.
       timeout: 5 # Optional, default is `5`.
 ```
 
@@ -107,7 +145,7 @@ jobs:
     permissions:
       contents: read
     with:
-      event: restart-ysto
+      event: restart-app
       environment: production # Optional, default is `production`.
     secrets:
       YNFRA_DISPATCH_TOKEN: ${{ secrets.YNFRA_DISPATCH_TOKEN }}

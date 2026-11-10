@@ -1,0 +1,111 @@
+# .github/workflows/check.yaml
+
+# Reusable job to check a repository.
+#
+# Actions used:
+# - [taiki-e/install-action](https://github.com/taiki-e/install-action)
+# - [actions/checkout](https://github.com/actions/checkout)
+#
+# The caller repository must have these Just recipes:
+# - `check_just`
+# - `check_typos`
+# - `check_actions`
+# - `audit_actions`
+#
+# To reduce the total action time, the `test` jobs of the caller do not depend on this job.
+#
+# On failure, this job cancels the whole workflow run.
+#
+# Returns:
+# - Failure when a check fails, and cancels the workflow run.
+
+name: Check
+
+on:
+  workflow_call:
+    inputs:
+      tools:
+        description: More tools to install, comma separated.
+        type: string
+        default: ''
+      recipes:
+        description: More Just recipes to run, space separated.
+        type: string
+        default: ''
+      timeout:
+        description: Job timeout in minutes.
+        type: number
+        default: 1
+
+permissions: {}
+
+jobs:
+  check:
+    name: Check - Linux arm64
+    runs-on: ubuntu-26.04-arm
+    permissions:
+      actions: write # Required to cancel the `test` jobs on failure.
+      contents: read
+    timeout-minutes: ${{ inputs.timeout }}
+
+    steps:
+
+      - name: Install cargo tools
+        uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
+        with:
+          tool: >-
+            just,typos,zizmor${{ inputs.tools != '' && format(',{0}', inputs.tools) || '' }}
+
+      - name: Install Pinact
+        run: |
+          set -euo pipefail
+          version="5.0.2"
+          release="https://github.com/suzuki-shunsuke/pinact/releases/download/v${version}"
+          archive="pinact_linux_arm64.tar.gz"
+          curl -fsSL -o "/tmp/${archive}" "${release}/${archive}"
+          curl -fsSL -o /tmp/pinact_checksums.txt "${release}/pinact_${version}_checksums.txt"
+          (cd /tmp && grep " ${archive}\$" pinact_checksums.txt | sha256sum -c -)
+          mkdir -p "/tmp/pinact_${version}"
+          tar -xzf "/tmp/${archive}" -C "/tmp/pinact_${version}" pinact
+          echo "/tmp/pinact_${version}" >> "$GITHUB_PATH"
+
+      - name: Checkout the source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check Just recipes
+        run: just check_just
+
+      - name: Check Typos
+        run: just check_typos
+
+      - name: Check action versions with Pinact
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: just check_actions
+
+      - name: Audit actions with Zizmor
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: just audit_actions
+
+      - name: Run more Just recipes
+        if: inputs.recipes != ''
+        env:
+          RECIPES: ${{ inputs.recipes }}
+        run: |
+          set -euo pipefail
+          read -ra recipes <<< "$RECIPES"
+          for recipe in "${recipes[@]}"; do
+            just "$recipe"
+          done
+
+      - name: Cancel on failure
+        # Cancel the `test` jobs on failure since they don't depend on `check`.
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: gh run cancel "${RUN_ID}" --repo "${REPO}"
