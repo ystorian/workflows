@@ -544,6 +544,8 @@ check_typos: check_command_typos
 	if [ ! -f ".typos.toml" ]; then
 		if [ -f "Cargo.toml" ]; then
 			echo {{ info(['Using configuration from', BOLD + 'Cargo.toml']) }};
+		elif [ -f "_typos.toml" ]; then
+			echo {{ info(['Using', BOLD + 'local', 'configuration file:', BOLD + '_typos.toml']) }};
 		else
 			echo {{ error(['Configuration file not found:', BOLD + '.typos.toml']) }};
 			exit 1;
