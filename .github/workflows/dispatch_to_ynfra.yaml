@@ -13,7 +13,7 @@ on:
   workflow_call:
     inputs:
       event:
-        description: Event type, for example `restart-ysto`.
+        description: Event type, for example `restart-app`.
         type: string
         required: true
       environment:
