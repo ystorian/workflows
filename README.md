@@ -2,6 +2,9 @@
 
 Reusable GitHub Actions workflows for Ystorian repositories.
 
+This is a public repository licensed under the [GNU Affero General Public License v3.0](LICENSE).
+
+
 ## Detect changes
 
 The `detect_changes.yaml` workflow detects relevant file changes with
