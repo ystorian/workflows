@@ -69,7 +69,7 @@ reset_title := "\u{1b}]0;\u{7}"
 ## Strings.
 
 # Base64 decode.
-base64_decode(encoded) := shell('base64 -d <<< $1',  encoded )
+base64_decode(encoded) := shell('base64 -d <<< $1', encoded)
 
 ## Files
 

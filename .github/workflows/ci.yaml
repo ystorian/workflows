@@ -1,0 +1,55 @@
+# .github/workflows/ci.yaml
+
+name: CI
+
+on:
+  schedule:
+    # Runs every Monday at 06:00 UTC (Summer: 08:00, Winter: 07:00).
+    - cron: 0 6 * * 1
+  workflow_dispatch: # Allows manual triggering.
+  push:
+    # Run on push to branches, ignore push to tags.
+    branches:
+      - "**"
+    tags:
+      - "!**"
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
+
+
+
+jobs:
+
+  changes:
+    name: Workflows
+    uses: $/.github/workflows/detect_changes.yaml
+    permissions:
+      contents: read
+      actions: read # Need to read actions, obviously.
+    with:
+      filter: ci
+
+
+  check:
+    name: Workflows
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    uses: $/.github/workflows/check.yaml
+    permissions:
+      actions: write # Required to cancel the run on failure.
+      contents: read
+
+
+
+  # Set `Require status checks to pass` only to `Workflows / Status check`.
+  status:
+    name: Workflows
+    needs: [changes, check]
+    if: always()
+    uses: $/.github/workflows/status_check.yaml
+    with:
+      needs: ${{ toJSON(needs) }}

@@ -41,7 +41,7 @@ permissions: {}
 
 jobs:
   check:
-    name: Check - Linux arm64
+    name: Check
     runs-on: ubuntu-26.04-arm
     permissions:
       actions: write # Required to cancel the `test` jobs on failure.

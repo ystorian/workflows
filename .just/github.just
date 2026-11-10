@@ -363,6 +363,10 @@ set_status_check repo=repo: check_command_gh check_command_jq
 
 	echo {{ done(repo) }}
 
+# Show GitHub rate limit and reset time
+get_limit:
+	gh api graphql -f query='{rateLimit{limit,cost,remaining,resetAt}}'
+
 ## Check commands.
 
 # Check if `gh` is available

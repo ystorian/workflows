@@ -7,8 +7,8 @@ ci:
 
 	# Preparation.
 	just lint_just
+	just check_typos
 	just check_actions
 	just audit_actions
-	just check_typos
 
 	echo {{ done('') }}

@@ -86,6 +86,9 @@ jobs:
       timeout: 1 # Optional, default is `1`.
 ```
 
+The `recipes` input does not install tools. Add the tools of the recipes to `tools`.
+For example, `check_deny` needs `tools: cargo-deny`.
+
 ## Cargo cache cleanup
 
 The `cargo_cache_cleanup.yaml` workflow deletes the superseded Cargo caches of the current ref.
