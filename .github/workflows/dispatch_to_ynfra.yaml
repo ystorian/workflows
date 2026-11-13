@@ -4,8 +4,11 @@
 #
 # The dispatch token is the `YNFRA_DISPATCH_TOKEN` environment secret.
 #
+# The commit SHA goes in `client_payload.sha`. Ynfra deploys the `sha-<commit>` image tag.
+# `--raw-field` keeps the SHA a string, even if it has only digits.
+#
 # Returns:
-# - Sends the `event` event to `<owner>/ynfra`.
+# - Sends the `event` event to `<owner>/ynfra`, with the commit SHA.
 
 name: Dispatch to Ynfra
 
@@ -43,9 +46,12 @@ jobs:
           GH_TOKEN: ${{ secrets.YNFRA_DISPATCH_TOKEN }}
           OWNER: ${{ github.repository_owner }}
           EVENT: ${{ inputs.event }}
+          SHA: ${{ github.sha }}
         run: |
           if [ -z "$GH_TOKEN" ]; then
             echo "::error::YNFRA_DISPATCH_TOKEN is missing."
             exit 1
           fi
-          gh api "/repos/${OWNER}/ynfra/dispatches" --field event_type="$EVENT"
+          gh api "/repos/${OWNER}/ynfra/dispatches" \
+            --raw-field event_type="$EVENT" \
+            --raw-field "client_payload[sha]=$SHA"

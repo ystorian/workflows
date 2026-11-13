@@ -7,8 +7,12 @@ ci:
 
 	# Preparation.
 	just lint_just
+
+	# Check.
 	just check_typos
-	just check_actions
-	just audit_actions
+	just check_actions --fast
+	just audit_actions --fast
+
+	# Test.
 
 	echo {{ done('') }}

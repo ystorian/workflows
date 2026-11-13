@@ -114,6 +114,7 @@ jobs:
 
 The `build_image.yaml` workflow builds a Docker image and pushes it to `ghcr.io/<owner>/<image>`.
 It gives the commit ID to the build with the `COMMIT_ID` build argument.
+It tags the image with the branch name and with `sha-<commit>`.
 It keeps the build cache in the `buildcache` tag.
 
 ```yaml
@@ -135,6 +136,7 @@ jobs:
 ## Dispatch to Ynfra
 
 The `dispatch_to_ynfra.yaml` workflow sends a `repository_dispatch` event to `<owner>/ynfra`.
+It sends the commit SHA in `client_payload.sha`, to deploy the `sha-<commit>` image tag.
 
 The `YNFRA_DISPATCH_TOKEN` secret is in the `environment` of the caller repository.
 The caller must pass it by name, otherwise it is empty.

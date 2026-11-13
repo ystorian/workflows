@@ -11,8 +11,11 @@
 # The `.git` directory is excluded by `.dockerignore`. The commit ID is given to the build with the
 # `COMMIT_ID` build argument.
 #
+# The `sha-<commit>` tag never moves, unlike the branch tag. Ynfra deploys this tag. Then a rollback
+# returns to the previous image, and a restarted pod keeps its version.
+#
 # Returns:
-# - Pushes `ghcr.io/<owner>/<image>` with the tags from `docker/metadata-action`.
+# - Pushes `ghcr.io/<owner>/<image>:<branch>` and `ghcr.io/<owner>/<image>:sha-<commit>`.
 # - Keeps the build cache in `ghcr.io/<owner>/<image>:buildcache`.
 
 name: Build image
@@ -71,6 +74,9 @@ jobs:
         with:
           context: git # Read metadata from the checkout, not the GitHub API.
           images: ${{ env.IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=sha,format=long
 
       - name: Build and push the Docker image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
