@@ -28,6 +28,13 @@ pinact_config := '.github/pinact.yaml'
 # Display `--fast` hint.
 fast_hint(fast) := if env('CI', 'false') == 'false' { if fast { echo(info('Skipping workflows that were checked today')) } else { echo(info(['Use', BOLD + '--fast', 'to skip rechecking today'])) } }
 
+# Rarely used variables and functions, to stop `just-lsp` from complaining
+[group('GitHub')]
+[private]
+_github_unused:
+	echo {{ user }}
+	echo {{ github_actions_id }}
+
 # Audit actions
 [arg('fix', long='fix', flag, help='Fix findings')]
 [arg('fast', long='fast', flag, help='Cache the result for 1 day')]

@@ -14,9 +14,6 @@ import 'ci.just'
 
 # Project variables.
 
-# Additional Cargo tools required by this project (see `.just/cargo.just`).
-additional_cargo_tools := ['zizmor']
-
 # Setup this project (tooling, hooks)
 [group('_')]
 setup:
