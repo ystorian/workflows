@@ -10,10 +10,6 @@ import 'utils.just'
 # Project recipes.
 import 'ci.just'
 
-# Template only: import all.
-
-# Project variables.
-
 # Setup this project (tooling, hooks)
 [group('_')]
 setup:

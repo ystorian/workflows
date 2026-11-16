@@ -1,14 +1,6 @@
 # @template/.just/github.just
 
 # Variables.
-# Return the repository name.
-repo := if which("gh") == [] { '' } else { shell("gh repo view --json name --jq '.name'") }
-
-# Return the repository owner (organization).
-owner := if which("gh") == [] { '' } else { shell("gh repo view --json owner --jq '.owner.login'") }
-
-# Return the GitHub user name.
-user := if which("gh") == [] { '' } else { shell("gh api user --jq '.login'") }
 
 # GitHub auth token.
 github_token := if env('GITHUB_TOKEN', '') != '' { env('GITHUB_TOKEN') } else if which("gh") == [] { '' } else { shell('gh auth token 2>/dev/null || echo ""') }
@@ -32,7 +24,6 @@ fast_hint(fast) := if env('CI', 'false') == 'false' { if fast { echo(info('Skipp
 [group('GitHub')]
 [private]
 _github_unused:
-	echo {{ user }}
 	echo {{ github_actions_id }}
 
 # Audit actions
@@ -199,7 +190,7 @@ create_env env repo=repo: check_command_gh
 list_envs repo=repo: check_command_gh
 	echo {{ title(['List the environments in', BOLD + owner + '/' + repo]) }}
 
-	gh api repos/{owner}/{{ repo }}/environments --jq '.environments[].name'
+	gh api repos/{{ owner }}/{{ repo }}/environments --jq '.environments[].name'
 
 	echo {{ done(repo) }}
 
@@ -224,8 +215,7 @@ check_rulesets_org owner=owner: check_command_gh check_command_jq
 
 	failed='';
 
-	for repo_name in $(gh repo list {{ owner }} --limit 200 --no-archived --json name \
-		--jq '.[].name' | sort); do
+	for repo_name in $(just list_org_repos {{ owner }}); do
 		echo {{ info('$repo_name') }};
 		just check_main_branch {{ owner }} $repo_name;
 		just check_branch_protection {{ owner }} $repo_name;
@@ -327,8 +317,7 @@ check_branch_protection owner=owner repo=repo:
 [private]
 [script]
 check_main_branch owner=owner repo=repo:
-	default_branch=$(gh repo view {{ owner }}/{{ repo }} --json defaultBranchRef --jq '
-		.defaultBranchRef.name' 2>/dev/null);
+	default_branch=$(gh api repos/{{ owner }}/{{ repo }} --jq '.default_branch' 2>/dev/null);
 
 	if [ "$default_branch" != "main" ]; then
 		echo {{ error(['Main branch in', BOLD + owner + '/' + repo, 'is', RED + "$default_branch"]) }};
@@ -385,9 +374,33 @@ set_status_check clean repo=repo: check_command_gh check_command_jq
 
 	echo {{ done(repo) }}
 
-# Show GitHub rate limit and reset time
-get_limit:
-	gh api graphql -f query='{rateLimit{limit,cost,remaining,resetAt}}'
+# Show GitHub REST and GraphQL API quotas
+[group('GitHub')]
+[no-exit-message]
+[script]
+rate_limit: check_command_gh
+	echo {{ title(['GitHub', BOLD + 'REST', 'and', BOLD + 'GraphQL', 'API quotas']) }}
+
+	# This endpoint does not use the quota.
+	gh api rate_limit --jq '.resources | {core, graphql} | to_entries[] |
+		"\(.key) \(.value.remaining) \(.value.limit) \(.value.reset | strflocaltime("%H:%M:%S"))"' |
+	while read -r name remaining limit reset; do
+		[ "$name" = 'core' ] && name='REST   ';
+		[ "$name" = 'graphql' ] && name='GraphQL';
+		color='{{ GREEN }}';
+		[ "$remaining" -lt $((limit / 10)) ] && color='{{ YELLOW }}';
+		[ "$remaining" = '0' ] && color='{{ RED }}';
+		echo {{ note([BOLD + '$name', '${color}$remaining', style('dim') + '/ $limit', BLUE + '  Reset at', BOLD + '$reset']) }};
+	done
+
+	echo {{ done('') }}
+
+# List the names of the active organization repositories
+[group('GitHub')]
+[private]
+list_org_repos owner=owner: check_command_gh
+	gh api --paginate 'orgs/{{ owner }}/repos?per_page=100' \
+		--jq '.[] | select(.archived | not) | .name' | sort
 
 ## Check commands.
 
