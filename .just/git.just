@@ -249,7 +249,7 @@ merge_pr branch=dev_branch: check_command_gh
 			break;
 		fi;
 
-		printf '\r\033[2K%s' {{ dim(['Checks:', BOLD + '$total', 'Pending:', YELLOW + '$pending', 'Failed:', RED + '$failed']) }};
+		printf '\r\033[2K%s' {{ note([GREEN + 'Checks:', BOLD + '$total', YELLOW + 'Pending:', '$pending', RED + 'Failed:', '$failed']) }};
 		sleep 5;
 	done
 	printf '\r\033[2K';
