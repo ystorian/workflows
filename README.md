@@ -93,7 +93,7 @@ For example, `check_deny` needs `tools: cargo-deny`.
 ## Test Rust
 
 The `test_rust.yaml` workflow tests a Rust repository with the `ci` Cargo profile.
-It runs `just test ci` on each runner, and `just clippy ci` on Linux.
+It runs `just test ci` on each runner, and `just clippy ci` on the OS in `clippy_os`.
 Clippy fails on warnings with the `ci` profile.
 It caches the Cargo crates and the `target` folder.
 
@@ -116,7 +116,8 @@ jobs:
     with:
       runners: '["ubuntu-26.04-arm", "windows-11-arm", "macos-26"]' # Optional, default is Linux.
       rust_version: 1.99.1 # Optional, default is the runner's version.
-      strict: true # Optional, run Clippy with `--strict`.
+      clippy_os: '["Linux", "macOS"]' # Optional, default is Linux.
+      clippy_strict: true # Optional, run Clippy with `--strict`.
       apt_packages: libfontconfig1-dev # Optional, space separated, Linux only.
       env: | # Optional, one `KEY=VALUE` per line.
         SLINT_NO_QT=1

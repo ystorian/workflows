@@ -17,6 +17,9 @@
 # The caller's workflow `env` is not passed to a reusable workflow.
 # Use the `env` input instead.
 #
+# Clippy runs only on the runners with an OS in `clippy_os`.
+# The names are the `runner.os` values, the match ignores the case.
+#
 # The service containers start only on Linux runners.
 # A service with an empty `image` does not start.
 #
@@ -39,7 +42,11 @@ on:
         description: Minimum Rust version, empty to use the runner's.
         type: string
         default: ''
-      strict:
+      clippy_os:
+        description: OS names that run Clippy (`Linux`, `macOS`, `Windows`), as a JSON array.
+        type: string
+        default: '["Linux"]'
+      clippy_strict:
         description: Run Clippy with the strict Ystorian lints.
         type: boolean
         default: false
@@ -204,8 +211,8 @@ jobs:
           rustup update --no-self-update "${RUST_VERSION}"
           rustup default "${RUST_VERSION}"
 
-      - name: Linux - Add Rust components
-        if: runner.os == 'Linux' && steps.toolchain.outputs.preinstalled != 'true'
+      - name: Add the Clippy component
+        if: contains(fromJSON(inputs.clippy_os), runner.os) && steps.toolchain.outputs.preinstalled != 'true'
         run: rustup component add clippy
 
       - name: Linux - Setup Mold
@@ -256,10 +263,10 @@ jobs:
       - name: Test
         run: just test ci
 
-      - name: Linux - Check and lint with Clippy
-        if: runner.os == 'Linux'
+      - name: Check and lint with Clippy
+        if: contains(fromJSON(inputs.clippy_os), runner.os)
         env:
-          STRICT: ${{ inputs.strict && '--strict' || '' }}
+          STRICT: ${{ inputs.clippy_strict && '--strict' || '' }}
         run: just clippy ${STRICT} ci
 
       - name: Run more Just recipes
