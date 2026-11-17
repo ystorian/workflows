@@ -1,0 +1,278 @@
+# .github/workflows/test_rust.yaml
+
+# Reusable job to test a Rust repository on one or more runners.
+#
+# Actions used:
+# - [taiki-e/install-action](https://github.com/taiki-e/install-action)
+# - [rui314/setup-mold](https://github.com/rui314/setup-mold)
+# - [actions/checkout](https://github.com/actions/checkout)
+# - [actions/cache](https://github.com/actions/cache)
+#
+# The caller repository must have these Just recipes:
+# - `fetch`
+# - `test`
+# - `clippy`
+# - `prune_target`
+#
+# The caller's workflow `env` is not passed to a reusable workflow.
+# Use the `env` input instead.
+#
+# The service containers start only on Linux runners.
+# A service with an empty `image` does not start.
+#
+# The Cargo cache keys are `cargo-<os>-<arch>-<rustc>-<lock>[-<run_id>]`,
+# as expected by `cargo_cache_cleanup.yaml`.
+#
+# Returns:
+# - Failure when a test, a lint, or a recipe fails.
+
+name: Test Rust
+
+on:
+  workflow_call:
+    inputs:
+      runners:
+        description: Runner labels, as a JSON array.
+        type: string
+        default: '["ubuntu-26.04-arm"]'
+      rust_version:
+        description: Minimum Rust version, empty to use the runner's.
+        type: string
+        default: ''
+      strict:
+        description: Run Clippy with the strict Ystorian lints.
+        type: boolean
+        default: false
+      apt_packages:
+        description: More apt packages for Linux, space separated.
+        type: string
+        default: ''
+      env:
+        description: More environment variables, one `KEY=VALUE` per line.
+        type: string
+        default: ''
+      postgres:
+        description: Start a Postgres service, with `DATABASE_URL` set.
+        type: boolean
+        default: false
+      mail:
+        description: Start a Mailpit service (SMTP 1025, HTTP 8025).
+        type: boolean
+        default: false
+      recipes:
+        description: More Just recipes to run after the tests, space separated.
+        type: string
+        default: ''
+      timeout:
+        description: Job timeout in minutes.
+        type: number
+        default: 10
+
+permissions: {}
+
+env:
+  # Always display colored outputs.
+  CARGO_TERM_COLOR: always
+
+  # Reduce Cargo output.
+  CARGO_TERM_QUIET: true
+
+  # Disable incremental compilation for faster from-scratch builds.
+  CARGO_INCREMENTAL: 0
+
+  # Disable debug info to reduce the size of `./target`.
+  CARGO_PROFILE_TEST_DEBUG: 0
+
+  # Link with LLVM's lld-link on Windows, faster than the default linker.
+  CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_LINKER: lld-link.exe
+  CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: lld-link.exe
+
+  # Override the crt-static flag from `.cargo/config.toml`, this slows down CI runs.
+  CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_RUSTFLAGS: ""
+  CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: ""
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        # Only for Windows runners.
+        shell: bash
+    timeout-minutes: ${{ inputs.timeout }}
+
+    strategy:
+      matrix:
+        os: ${{ fromJSON(inputs.runners) }}
+
+    services:
+
+      postgres:
+        # library/postgres:18.6-trixie (2026-11-05)
+        image: ${{ inputs.postgres && 'postgres@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42' || '' }}
+        # Note: Update the version comment and image SHA with `just update_images`.
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+          POSTGRES_PASSWORD: secret
+        ports:
+          - 1338:5432
+        # Postgres health checks are disabled.
+
+      mail:
+        # axllent/mailpit:v1.33.1 (2026-11-07)
+        image: ${{ inputs.mail && 'axllent/mailpit@sha256:aef2aacc11f075ec0fb6874275ee4a421e688e11a96ebb296134d1735c7761ce' || '' }}
+        # Note: Update the version comment and image SHA with `just update_images`.
+        ports:
+          - 1025:1025
+          - 8025:8025
+        env:
+          MP_DISABLE_VERSION_CHECK: 1
+          MP_SMTP_AUTH_ACCEPT_ANY: 1
+          MP_SMTP_AUTH_ALLOW_INSECURE: 1
+
+    steps:
+
+      - name: Windows - Make it faster
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          fsutil behavior set disablelastaccess 1
+          fsutil behavior set disable8dot3 1
+
+      - name: Set the environment variables
+        env:
+          POSTGRES: ${{ inputs.postgres }}
+          VARIABLES: ${{ inputs.env }}
+        run: |
+          set -euo pipefail
+          if [ "$POSTGRES" = "true" ]; then
+            echo "DATABASE_URL=postgres://postgres:secret@localhost:1338/postgres" >> "$GITHUB_ENV"
+          fi
+          # The `env` input is set last, to override the defaults.
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            if ! [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+              echo "::error::Invalid env line: ${line%%=*}"
+              exit 1
+            fi
+            echo "$line" >> "$GITHUB_ENV"
+          done <<< "$VARIABLES"
+
+      - name: Linux - Install the apt packages
+        if: runner.os == 'Linux' && inputs.apt_packages != ''
+        env:
+          PACKAGES: ${{ inputs.apt_packages }}
+        run: |
+          set -euo pipefail
+          read -ra packages <<< "$PACKAGES"
+          sudo apt-get update -q
+          sudo apt-get install -y "${packages[@]}"
+
+      - name: Check the minimum Rust version
+        id: toolchain
+        env:
+          RUST_VERSION: ${{ inputs.rust_version }}
+        run: |
+          ver_newer() {
+            local IFS=. a b i; set -f; a=($1) b=($2); set +f
+            for i in 0 1 2; do
+              [ "${a[i]:-0}" -gt "${b[i]:-0}" ] && return 0
+              [ "${a[i]:-0}" -lt "${b[i]:-0}" ] && return 1
+            done
+            return 1
+          }
+          CURRENT="$(rustc --version | cut -d' ' -f2)"
+          if [ -z "${RUST_VERSION}" ]; then
+            echo "No minimum version set, using ${CURRENT}."
+            echo "preinstalled=true" >> "$GITHUB_OUTPUT"
+          elif ver_newer "${RUST_VERSION}" "${CURRENT}"; then
+            echo "Runner is on ${CURRENT}, older than ${RUST_VERSION}, installing ${RUST_VERSION}."
+            echo "preinstalled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Runner is on ${CURRENT}, not installing ${RUST_VERSION}."
+            echo "preinstalled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install and set the Rust toolchain
+        if: steps.toolchain.outputs.preinstalled != 'true'
+        env:
+          RUST_VERSION: ${{ inputs.rust_version }}
+        run: |
+          rustup update --no-self-update "${RUST_VERSION}"
+          rustup default "${RUST_VERSION}"
+
+      - name: Linux - Add Rust components
+        if: runner.os == 'Linux' && steps.toolchain.outputs.preinstalled != 'true'
+        run: rustup component add clippy
+
+      - name: Linux - Setup Mold
+        if: runner.os == 'Linux'
+        uses: rui314/setup-mold@339e96b4ff1f3bd865856ba4cbbe8818a7acb038 # v1
+        with:
+          mold-version: 3.0.0
+
+      - name: Install cargo tools
+        uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2.90.4
+        with:
+          tool: just
+
+      - name: Checkout the source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Define the Cargo cache keys
+        id: keys
+        env:
+          LOCK_HASH: ${{ hashFiles('**/Cargo.lock') }}
+        run: |
+          echo "lock=$(echo "$LOCK_HASH" | cut -c1-12)" >> "$GITHUB_OUTPUT"
+          echo "rustc=$(rustc --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the Cargo crates
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        # zizmor: ignore[cache-poisoning]
+        id: cargo-cache
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            target/
+          # The scheduled run gets a unique key and no `restore-keys` to always build from scratch
+          # and save a fresh cache image.
+          key: cargo-${{runner.os}}-${{runner.arch}}-${{ steps.keys.outputs.rustc }}-${{ steps.keys.outputs.lock }}${{ github.event_name == 'schedule' && format('-{0}', github.run_id) || '' }}
+          restore-keys: ${{ github.event_name != 'schedule' && format('cargo-{0}-{1}-{2}-', runner.os, runner.arch, steps.keys.outputs.rustc) || '' }}
+
+      - name: Download all dependencies
+        if: steps.cargo-cache.outputs.cache-hit != 'true'
+        run: just fetch
+
+      # Rust formatting is checked by the `check` job.
+      # The `ci` profile runs Cargo with `--frozen` (locked and offline).
+
+      - name: Test
+        run: just test ci
+
+      - name: Linux - Check and lint with Clippy
+        if: runner.os == 'Linux'
+        env:
+          STRICT: ${{ inputs.strict && '--strict' || '' }}
+        run: just clippy ${STRICT} ci
+
+      - name: Run more Just recipes
+        if: inputs.recipes != ''
+        env:
+          RECIPES: ${{ inputs.recipes }}
+        run: |
+          set -euo pipefail
+          read -ra recipes <<< "$RECIPES"
+          for recipe in "${recipes[@]}"; do
+            just "$recipe"
+          done
+
+      - name: Prune the workspace artifacts before saving the cache
+        if: steps.cargo-cache.outputs.cache-hit != 'true'
+        run: just prune_target ci

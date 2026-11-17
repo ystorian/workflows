@@ -9,6 +9,7 @@ This is a public repository licensed under the [GNU Affero General Public Licens
 CI:
 - [Detect changes](#detect-changes) Detect relevant file changes to skip unneeded jobs
 	- [Check](#check) Check actions and source code
+	- [Test Rust](#test-rust) Test and lint Rust code on one or more runners
 	- [Cargo cache cleanup](#cargo-cache-cleanup) Delete superseded Cargo caches
 - [Status check](#status-check) Set the required status check branch protection
 
@@ -88,6 +89,44 @@ jobs:
 
 The `recipes` input does not install tools. Add the tools of the recipes to `tools`.
 For example, `check_deny` needs `tools: cargo-deny`.
+
+## Test Rust
+
+The `test_rust.yaml` workflow tests a Rust repository with the `ci` Cargo profile.
+It runs `just test ci` on each runner, and `just clippy ci` on Linux.
+Clippy fails on warnings with the `ci` profile.
+It caches the Cargo crates and the `target` folder.
+
+The caller must have the Just recipes `fetch`, `test`, `clippy`, and `prune_target`.
+
+The caller's workflow `env` is not passed to a reusable workflow. Use the `env` input.
+
+The services start only on Linux runners. With `postgres: true`, `DATABASE_URL` is set to
+`postgres://postgres:secret@localhost:1338/postgres`.
+
+```yaml
+jobs:
+  test:
+    name: Workflows
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    uses: ystorian/workflows/.github/workflows/test_rust.yaml@main
+    permissions:
+      contents: read
+    with:
+      runners: '["ubuntu-26.04-arm", "windows-11-arm", "macos-26"]' # Optional, default is Linux.
+      rust_version: 1.99.1 # Optional, default is the runner's version.
+      strict: true # Optional, run Clippy with `--strict`.
+      apt_packages: libfontconfig1-dev # Optional, space separated, Linux only.
+      env: | # Optional, one `KEY=VALUE` per line.
+        SLINT_NO_QT=1
+      postgres: true # Optional, Postgres on port 1338.
+      mail: true # Optional, Mailpit on ports 1025 and 8025.
+      recipes: test_app # Optional, space separated Just recipes to run.
+      timeout: 10 # Optional, default is `10`.
+```
+
+Use `cargo_cache_cleanup.yaml` after this job to delete the superseded caches.
 
 ## Cargo cache cleanup
 
