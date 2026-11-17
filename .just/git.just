@@ -249,8 +249,11 @@ merge_pr branch=dev_branch: check_command_gh
 			break;
 		fi;
 
-		printf '\r\033[2K%s' {{ note([GREEN + 'Checks:', BOLD + '$total', YELLOW + 'Pending:', '$pending', RED + 'Failed:', '$failed']) }};
-		sleep 5;
+		printf '\r\033[2K%s' {{ note([GREEN + 'Checks:', BOLD + '$total', YELLOW + 'Pending:', '$pending', RED + 'Failed:', '$failed', '']) }};
+		for i in {1..5}; do
+			printf '⏵';
+			sleep 1;
+		done;
 	done
 	printf '\r\033[2K';
 

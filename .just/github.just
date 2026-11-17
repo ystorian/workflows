@@ -148,6 +148,9 @@ update_images no_cooldown: check_command_crane check_command_jq
 	#   # library/postgres:18.7-trixie (2026-11-14)
 	#   image: postgres@sha256:<digest>
 	#
+	# The image line can also be a one-line expression, with the
+	# `name@sha256:<digest>` string inside.
+	#
 	# The new tag keeps the major version and the suffix.
 	# A tag with no version (`latest`) only gets a new digest.
 	# The date in parentheses is the image build date.
@@ -175,7 +178,9 @@ update_images no_cooldown: check_command_crane check_command_jq
 			/^[[:space:]]*# [^ ]+:[^ ]+( \([0-9-]+\))?[[:space:]]*$/ {
 				line = FNR; ref = $2; date = $3 ? substr($3, 2, 10) : "-"; next
 			}
-			line && /^[[:space:]]*image: [^ ]+@sha256:[0-9a-f]+/ { print line, FNR, ref, date, $2 }
+			line && /^[[:space:]]*image:/ && match($0, /[A-Za-z0-9._\/:-]+@sha256:[0-9a-f]+/) {
+				print line, FNR, ref, date, substr($0, RSTART, RLENGTH)
+			}
 			{ line = 0 }
 		' "$workflow" > "{{ temp_file }}"
 
