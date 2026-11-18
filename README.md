@@ -45,7 +45,9 @@ jobs:
 ## Status check
 
 The `status_check.yaml` workflow gives one required status check for a workflow.
+
 It fails when a job in `needs` failed or was canceled.
+
 Skipped jobs pass.
 
 ```yaml
@@ -64,10 +66,13 @@ In branch protection, require only `Workflows / Status check`.
 ## Check
 
 The `check.yaml` workflow checks a repository on Linux arm64. It checks Just recipes, typos, and
-actions. More recipes can be added to check for Rust dependencies and other lints.
+actions. More recipes can be added to check for other lints.
 
-The caller must have the Just recipes `check_just`, `check_typos`, `check_actions`, and
-`audit_actions`.
+The caller must have these Just recipes:
+- `check_just`
+- `check_typos`
+- `check_actions`
+- `audit_actions`
 
 On failure, it cancels the whole workflow run.
 
@@ -82,22 +87,38 @@ jobs:
       actions: write # Required to cancel the `test` jobs on failure.
       contents: read
     with:
-      tools: flynt # Comma separated optional tools to install.
-      recipes: check_rust flynt # Space separated optional Just recipes to run.
+      tools: cargo-deny,flynt # Comma separated optional tools to install.
+      recipes: check_deny flynt # Space separated optional Just recipes to run.
       timeout: 1 # Optional, default is `1`.
 ```
 
 The `recipes` input does not install tools. Add the tools of the recipes to `tools`.
 For example, `check_deny` needs `tools: cargo-deny`.
 
+The `recipes` input skips `check_rust` with a warning. This recipe runs `cargo fmt`, and the
+Rust version of the runner can be too old. The `test_rust.yaml` workflow runs `check_rust`.
+
 ## Test Rust
 
 The `test_rust.yaml` workflow tests a Rust repository with the `ci` Cargo profile.
-It runs `just test ci` on each runner, and `just clippy ci` on the OS in `clippy_os`.
-Clippy fails on warnings with the `ci` profile.
-It caches the Cargo crates and the `target` folder.
 
-The caller must have the Just recipes `fetch`, `test`, `clippy`, and `prune_target`.
+It runs:
+- `just check_rust` on the first runner (Linux by default)
+- `just test ci` on each runner
+- `just clippy ci` on the OS in `clippy_os`
+
+The formatting is checked here to use the same Rust version as the tests.
+
+Clippy fails on warnings with the `ci` profile.
+
+It caches the Cargo crates and the `target` folder. See [Cargo cache cleanup](#cargo-cache-cleanup).
+
+The caller must have the Just recipes:
+- `check_rust`
+- `fetch`
+- `test`
+- `clippy`
+- `prune_target`
 
 The caller's workflow `env` is not passed to a reusable workflow. Use the `env` input.
 

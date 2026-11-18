@@ -30,7 +30,7 @@ on:
         type: string
         default: ''
       recipes:
-        description: More Just recipes to run, space separated.
+        description: More Just recipes to run, space separated. Skips `check_rust`.
         type: string
         default: ''
       timeout:
@@ -79,8 +79,8 @@ jobs:
 
       # A sign-off is a `Signed-off-by: Name <email>` line in the commit message.
       # It is the author's statement for the DCO (Developer Certificate of Origin).
-      # This is checked here since the organization rulesets cannot require it.
-      - name: Check the sign-off of each commit
+      # This is checked here since we cannot use organization rulesets for this.
+      - name: Check commit Signed-off-by
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
         run: |
@@ -123,6 +123,10 @@ jobs:
           set -euo pipefail
           read -ra recipes <<< "$RECIPES"
           for recipe in "${recipes[@]}"; do
+            if [ "$recipe" = check_rust ]; then
+              echo "::warning::Skipping 'check_rust', this check is in 'test_rust.yaml'"
+              continue
+            fi
             just "$recipe"
           done
 
