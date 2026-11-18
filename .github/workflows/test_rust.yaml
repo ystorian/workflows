@@ -9,6 +9,7 @@
 # - [actions/cache](https://github.com/actions/cache)
 #
 # The caller repository must have these Just recipes:
+# - `check_rust`
 # - `fetch`
 # - `test`
 # - `clippy`
@@ -16,6 +17,9 @@
 #
 # The caller's workflow `env` is not passed to a reusable workflow.
 # Use the `env` input instead.
+#
+# The Rust formatting is checked only on the first runner.
+# It is checked here, not in `check.yaml`, to use the same Rust version as the tests.
 #
 # Clippy runs only on the runners with an OS in `clippy_os`.
 # The names are the `runner.os` values, the match ignores the case.
@@ -27,7 +31,7 @@
 # as expected by `cargo_cache_cleanup.yaml`.
 #
 # Returns:
-# - Failure when a test, a lint, or a recipe fails.
+# - Failure when any recipe fails.
 
 name: Test Rust
 
@@ -168,7 +172,7 @@ jobs:
             echo "$line" >> "$GITHUB_ENV"
           done <<< "$VARIABLES"
 
-      - name: Linux - Install the apt packages
+      - name: Linux - Install apt packages
         if: runner.os == 'Linux' && inputs.apt_packages != ''
         env:
           PACKAGES: ${{ inputs.apt_packages }}
@@ -210,6 +214,7 @@ jobs:
         run: |
           rustup update --no-self-update "${RUST_VERSION}"
           rustup default "${RUST_VERSION}"
+          rustup component add rustfmt
 
       - name: Add the Clippy component
         if: contains(fromJSON(inputs.clippy_os), runner.os) && steps.toolchain.outputs.preinstalled != 'true'
@@ -257,7 +262,10 @@ jobs:
         if: steps.cargo-cache.outputs.cache-hit != 'true'
         run: just fetch
 
-      # Rust formatting is checked by the `check` job.
+      - name: Check Rust formatting
+        if: matrix.os == fromJSON(inputs.runners)[0]
+        run: just check_rust
+
       # The `ci` profile runs Cargo with `--frozen` (locked and offline).
 
       - name: Test
