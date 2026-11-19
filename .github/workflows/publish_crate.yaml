@@ -1,0 +1,62 @@
+# .github/workflows/publish_crate.yaml
+
+# Reusable job to publish a Rust package to crates.io with Trusted Publishing.
+#
+# Actions used:
+# - [actions/checkout](https://github.com/actions/checkout)
+# - [rust-lang/crates-io-auth-action](https://github.com/rust-lang/crates-io-auth-action)
+#
+# crates.io checks the `workflow_ref` claim of the OIDC token. This claim is the caller workflow,
+# not this file. The Trusted Publishing settings on crates.io name the caller workflow file.
+#
+# Returns:
+# - Publishes the package of the current ref to crates.io.
+
+name: Publish crate
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: Environment set in the crates.io Trusted Publishing settings.
+        type: string
+        default: release
+      timeout:
+        description: Job timeout in minutes.
+        type: number
+        default: 5
+
+permissions: {}
+
+env:
+  # Always display colored outputs.
+  CARGO_TERM_COLOR: always
+
+  # Reduce Cargo output.
+  CARGO_TERM_QUIET: true
+
+jobs:
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-26.04-arm
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write # OpenID Connect token for crates.io Trusted Publishing.
+    timeout-minutes: ${{ inputs.timeout }}
+
+    steps:
+
+      - name: Checkout the source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Get a crates.io token
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+        id: auth
+
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo publish --locked

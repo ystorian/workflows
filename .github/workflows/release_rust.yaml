@@ -1,0 +1,362 @@
+# .github/workflows/release_rust.yaml
+
+# Reusable jobs to build, sign, and publish the binaries of a Rust package.
+#
+# Actions used:
+# - [actions/checkout](https://github.com/actions/checkout)
+# - [rui314/setup-mold](https://github.com/rui314/setup-mold)
+# - [actions/upload-artifact](https://github.com/actions/upload-artifact)
+# - [actions/download-artifact](https://github.com/actions/download-artifact)
+#
+# The caller runs on a `v*` tag push. A `workflow_dispatch` run only builds the archives, to test
+# the runners without signing or publishing anything.
+#
+# The package name, version, and minisign public key are read once from `Cargo.toml`, in the
+# `draft` job. The other jobs use its outputs.
+#
+# The minisign secrets are in the `environment` of the caller repository. The `sign` job uses this
+# environment. The caller passes the secrets by name too, like in `dispatch_to_ynfra.yaml`.
+#
+# The caller's workflow `env` is not passed to a reusable workflow.
+#
+# Returns:
+# - A draft release for the tag, with generated notes.
+# - One archive per target, a `SHA256SUMS` file, and a minisign signature for each file.
+# - The release is published only when every archive is built and signed.
+
+name: Release Rust
+
+on:
+  workflow_call:
+    inputs:
+      targets:
+        description: Build targets, as a JSON array of `{os, name, target}`.
+        type: string
+        default: >-
+          [
+            {"os": "ubuntu-26.04", "name": "Linux x64", "target": "x86_64-unknown-linux-musl"},
+            {"os": "ubuntu-26.04-arm", "name": "Linux arm64", "target": "aarch64-unknown-linux-musl"},
+            {"os": "macos-26", "name": "macOS arm64", "target": "aarch64-apple-darwin"},
+            {"os": "macos-26", "name": "macOS x64", "target": "x86_64-apple-darwin"},
+            {"os": "windows-latest", "name": "Windows x64", "target": "x86_64-pc-windows-msvc"},
+            {"os": "windows-11-arm", "name": "Windows arm64", "target": "aarch64-pc-windows-msvc"}
+          ]
+      features:
+        description: Cargo features to build, comma separated.
+        type: string
+        default: ''
+      environment:
+        description: Environment that holds the minisign secrets.
+        type: string
+        default: release
+      timeout:
+        description: Build job timeout in minutes.
+        type: number
+        default: 10
+    secrets:
+      MINISIGN_SECRET_KEY:
+        description: Minisign secret key file, an environment secret.
+        required: false
+      MINISIGN_PASSWORD:
+        description: Minisign secret key password, an environment secret.
+        required: false
+
+permissions: {}
+
+env:
+  # Always display colored outputs.
+  CARGO_TERM_COLOR: always
+
+  # Reduce Cargo output.
+  CARGO_TERM_QUIET: true
+
+  # Disable incremental compilation for faster from-scratch builds.
+  CARGO_INCREMENTAL: 0
+
+  # Link with LLVM's lld-link on Windows, faster than the default linker.
+  CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_LINKER: lld-link.exe
+  CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: lld-link.exe
+
+  # Pinned minisign release, used by the `sign` job.
+  # See https://github.com/jedisct1/minisign/releases
+  MINISIGN_VERSION: "0.12"
+  MINISIGN_SHA256: 9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73
+
+jobs:
+  # Check the tag against `Cargo.toml` and open the release as a draft.
+  draft:
+    name: Draft the release
+    # This needs the `gh` CLI, not available on `ubuntu-slim`.
+    runs-on: ubuntu-26.04-arm
+    permissions:
+      contents: write # Create the draft release.
+    outputs:
+      name: ${{ steps.package.outputs.name }}
+      version: ${{ steps.package.outputs.version }}
+      pubkey: ${{ steps.package.outputs.pubkey }}
+    timeout-minutes: 1
+
+    steps:
+
+      - name: Checkout the source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read the package from Cargo.toml
+        id: package
+        run: |
+          field() {
+            awk -v key="$1" '
+              /^\[package\]/ { section = 1; next }
+              /^\[/ { section = 0 }
+              section && $0 ~ "^" key "[[:space:]]*=" {
+                gsub(/[" ]/, ""); sub("^" key "=", ""); print; exit
+              }' Cargo.toml
+          }
+          name="$(field name)"
+          version="$(field version)"
+          pubkey="$(awk -F'"' '/^pubkey[[:space:]]*=/ { print $2; exit }' Cargo.toml)"
+          echo "Name: ${name}"
+          echo "Version: ${version}"
+          echo "Public key: ${pubkey}"
+          {
+            echo "name=${name}"
+            echo "version=${version}"
+            echo "pubkey=${pubkey}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check the tag against the version in Cargo.toml
+        if: github.event_name == 'push'
+        env:
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          if [ "v${VERSION}" != "${TAG}" ]; then
+            echo "::error::The tag ${TAG} does not match Cargo.toml version ${VERSION}."
+            exit 1
+          fi
+
+      - name: Check the minisign public key in Cargo.toml
+        if: github.event_name == 'push'
+        env:
+          PUBKEY: ${{ steps.package.outputs.pubkey }}
+        run: |
+          case "$PUBKEY" in
+            RW*) ;;
+            *)
+              echo "::error::The minisign pubkey in Cargo.toml is not set."
+              exit 1
+              ;;
+          esac
+
+      - name: Create the draft release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "The release $TAG already exists, reusing it."
+          else
+            gh release create "$TAG" \
+              --draft \
+              --title "$TAG" \
+              --generate-notes
+          fi
+
+
+  build:
+    name: Build - ${{ matrix.name }}
+    needs: draft
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        # Only for Windows runners.
+        shell: bash
+    timeout-minutes: ${{ inputs.timeout }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.targets) }}
+
+    env:
+      TARGET: ${{ matrix.target }}
+      NAME: ${{ needs.draft.outputs.name }}
+      STEM: ${{ needs.draft.outputs.name }}-${{ matrix.target }}-v${{ needs.draft.outputs.version }}
+
+    steps:
+
+      - name: Checkout the source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Linux - Install the musl toolchain
+        if: runner.os == 'Linux' && contains(matrix.target, 'musl')
+        # `musl-tools` provides `musl-gcc`, used as the linker driver.
+        run: sudo apt-get update -q && sudo apt-get install -y musl-tools
+
+      - name: Display the Rust version
+        run: rustup show --verbose && rustc --version
+
+      - name: Add the Rust target
+        run: rustup target add "$TARGET"
+
+      - name: Linux - Setup Mold
+        if: runner.os == 'Linux'
+        uses: rui314/setup-mold@339e96b4ff1f3bd865856ba4cbbe8818a7acb038 # v1
+        with:
+          mold-version: 3.0.0
+
+      - name: Build
+        env:
+          FEATURES: ${{ inputs.features }}
+        run: |
+          args=(--locked --release --target "$TARGET")
+          if [ -n "$FEATURES" ]; then
+            args+=(--features "$FEATURES")
+          fi
+          cargo build "${args[@]}"
+
+      - name: Unix - Create the archive
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          tar -czf "dist/${STEM}.tar.gz" -C "target/${TARGET}/release" "$NAME"
+          ls -l dist
+
+      - name: Windows - Create the archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path "target/${env:TARGET}/release/${env:NAME}.exe" `
+            -DestinationPath "dist/${env:STEM}.zip"
+          Get-ChildItem dist
+
+      - name: Upload the archive
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist
+          if-no-files-found: error
+          retention-days: 1
+
+
+  sign:
+    name: Sign and attach the archives
+    needs: [draft, build]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-26.04-arm
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: write # Attach the archives to the draft release.
+    timeout-minutes: 2
+    env:
+      NAME: ${{ needs.draft.outputs.name }}
+
+    steps:
+
+      - name: Download the archives
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          pattern: dist-*
+          merge-multiple: true
+
+      - name: Install minisign
+        run: |
+          curl -fsSL -o minisign.tar.gz \
+            "https://github.com/jedisct1/minisign/releases/download/${MINISIGN_VERSION}/minisign-${MINISIGN_VERSION}-linux.tar.gz"
+          echo "${MINISIGN_SHA256}  minisign.tar.gz" | sha256sum --check
+          tar -xzf minisign.tar.gz
+          sudo install -m 0755 "minisign-linux/$(uname -m)/minisign" /usr/local/bin/minisign
+          rm -rf minisign.tar.gz minisign-linux
+          minisign -v
+
+      - name: Create the checksum file
+        run: |
+          cd dist
+          sha256sum "${NAME}"-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Sign the archives
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          umask 077
+          trap 'rm -f signing.key signing.key.tmp' EXIT
+          printf '%s\n' "$MINISIGN_SECRET_KEY" | tr -d '\r' | grep -v '^[[:space:]]*$' > signing.key
+          if [ "$(wc -l < signing.key)" -eq 1 ]; then
+            {
+              printf 'untrusted comment: minisign encrypted secret key\n'
+              cat signing.key
+            } > signing.key.tmp
+            mv signing.key.tmp signing.key
+          fi
+          if [ "$(wc -l < signing.key)" -ne 2 ]; then
+            echo "::error::MINISIGN_SECRET_KEY is not a minisign secret key file."
+            exit 1
+          fi
+          for file in "dist/${NAME}"-* dist/SHA256SUMS; do
+            printf '%s\n' "$MINISIGN_PASSWORD" \
+              | minisign -S -s signing.key -m "$file" -x "${file}.sig" \
+                -t "${NAME} ${TAG}"
+          done
+
+      - name: Verify the signatures against the public key in Cargo.toml
+        env:
+          PUBKEY: ${{ needs.draft.outputs.pubkey }}
+        run: |
+          for file in "dist/${NAME}"-* dist/SHA256SUMS; do
+            case "$file" in *.sig) continue ;; esac
+            minisign -V -P "$PUBKEY" -x "${file}.sig" -m "$file"
+          done
+
+      - name: Attach the archives to the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" --clobber dist/*
+
+
+  # Publish the draft only when every archive is built and signed.
+  publish:
+    name: Publish the release
+    needs: [draft, build, sign]
+    if: always() && github.event_name == 'push'
+    runs-on: ubuntu-26.04-arm
+    permissions:
+      contents: write # Publish the draft release.
+    timeout-minutes: 1
+
+    steps:
+
+      - name: Validate the release jobs
+        env:
+          DRAFT_RESULT: ${{ needs.draft.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          SIGN_RESULT: ${{ needs.sign.result }}
+        run: |
+          echo "draft=$DRAFT_RESULT build=$BUILD_RESULT sign=$SIGN_RESULT"
+          for result in "$DRAFT_RESULT" "$BUILD_RESULT" "$SIGN_RESULT"; do
+            if [ "$result" != "success" ]; then
+              echo "::error::A release job failed or was cancelled, release stays at draft."
+              exit 1
+            fi
+          done
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: gh release edit "$TAG" --draft=false --latest

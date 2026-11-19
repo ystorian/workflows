@@ -18,6 +18,10 @@ Deployment:
 - [Build image](#build-image) Build and push a Docker image
 - [Dispatch to Ynfra](#dispatch-to-ynfra) Send a dispatch event
 
+Release:
+- [Release Rust](#release-rust) Build, sign, and publish the binaries of a Rust package
+- [Publish crate](#publish-crate) Publish a Rust package to crates.io
+
 ## Detect changes
 
 The `detect_changes.yaml` workflow detects relevant file changes with
@@ -215,6 +219,79 @@ jobs:
       environment: production # Optional, default is `production`.
     secrets:
       YNFRA_DISPATCH_TOKEN: ${{ secrets.YNFRA_DISPATCH_TOKEN }}
+```
+
+## Release Rust
+
+The `release_rust.yaml` workflow releases the binaries of a Rust package on a `v*` tag push.
+
+It runs:
+- `draft`: checks the tag against the `Cargo.toml` version, and creates a draft release.
+- `build`: builds one archive per target (`.tar.gz`, or `.zip` on Windows).
+- `sign`: signs the archives and a `SHA256SUMS` file with
+  [minisign](https://jedisct1.github.io/minisign/), and attaches them to the draft.
+- `publish`: publishes the draft only when all the other jobs passed.
+
+A `workflow_dispatch` run only builds the archives. It does not sign or publish.
+
+The `Cargo.toml` file must have a minisign `pubkey`, for example in
+`[package.metadata.binstall.signing]`. The signatures are checked against this key.
+
+The `MINISIGN_SECRET_KEY` and `MINISIGN_PASSWORD` secrets are in the `environment` of the caller
+repository. The caller passes them by name.
+
+The default `targets` are Linux (musl), macOS, and Windows, on x64 and arm64.
+
+```yaml
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Workflows
+    uses: ystorian/workflows/.github/workflows/release_rust.yaml@main
+    permissions:
+      contents: write # Required to create and publish the release.
+    with:
+      targets: '[{"os": "ubuntu-26.04-arm", "name": "Linux arm64", "target": "aarch64-unknown-linux-musl"}]' # Optional.
+      features: cli # Optional, comma separated Cargo features.
+      environment: release # Optional, default is `release`.
+      timeout: 10 # Optional, build timeout, default is `10`.
+    secrets:
+      MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+      MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+```
+
+## Publish crate
+
+The `publish_crate.yaml` workflow publishes a Rust package to crates.io with
+[Trusted Publishing](https://crates.io/docs/trusted-publishing).
+
+On crates.io, set the Trusted Publishing workflow to the caller file, for example `release.yaml`.
+crates.io checks the caller workflow, not this file.
+
+Add `if: github.event_name == 'push'`, to skip a `workflow_dispatch` run.
+
+```yaml
+jobs:
+  crate:
+    name: Workflows
+    needs: release
+    if: github.event_name == 'push'
+    uses: ystorian/workflows/.github/workflows/publish_crate.yaml@main
+    permissions:
+      contents: read
+      id-token: write # Required for crates.io Trusted Publishing.
+    with:
+      environment: release # Optional, default is `release`.
+      timeout: 5 # Optional, default is `5`.
 ```
 
 ## Pinning
