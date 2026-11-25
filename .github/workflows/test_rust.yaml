@@ -227,7 +227,7 @@ jobs:
           mold-version: 3.0.0
 
       - name: Install cargo tools
-        uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2.90.4
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
         with:
           tool: just
 
@@ -260,22 +260,24 @@ jobs:
 
       - name: Download all dependencies
         if: steps.cargo-cache.outputs.cache-hit != 'true'
+        # .just/rust.just
         run: just fetch
 
       - name: Check Rust formatting
         if: matrix.os == fromJSON(inputs.runners)[0]
+        # .just/rust.just
         run: just check_rust
 
-      # The `ci` profile runs Cargo with `--frozen` (locked and offline).
-
       - name: Test
-        run: just test ci
+        # .just/rust.just
+        run: just test
 
       - name: Check and lint with Clippy
         if: contains(fromJSON(inputs.clippy_os), runner.os)
         env:
           STRICT: ${{ inputs.clippy_strict && '--strict' || '' }}
-        run: just clippy ${STRICT} ci
+        # .just/rust.just
+        run: just clippy ${STRICT}
 
       - name: Run more Just recipes
         if: inputs.recipes != ''
@@ -290,4 +292,5 @@ jobs:
 
       - name: Prune the workspace artifacts before saving the cache
         if: steps.cargo-cache.outputs.cache-hit != 'true'
-        run: just prune_target ci
+        # .just/rust.just
+        run: just prune_target

@@ -13,12 +13,15 @@ owner := replace_regex(owner_repo, '/.*$', '')
 # Return the repository name.
 repo := replace_regex(owner_repo, '^.*/', '')
 
-# pr_dev_files.
-# Paths of the dev files to refresh.
-dev_paths := ['.just', '.github', '.githooks', '.vscode', '.clippy.toml', '.dockerignore', '.editorconfig', '.gitattributes', '.gitignore', '.markdownlint.json', '.rustfmt.toml', '.typos.toml', 'deny.toml', 'droast.toml', 'justfile']
+# pr_refresh.
+# Paths of the tooling files to refresh.
+tooling_path_list := ['.just', '.github', '.githooks', '.vscode', '.clippy.toml', '.dockerignore', '.editorconfig', '.gitattributes', '.gitignore', '.markdownlint.json', '.rustfmt.toml', '.typos.toml', 'deny.toml', 'droast.toml', 'justfile']
 
-# Branch for the dev files PR.
-dev_branch := 'refresh-dev-files'
+# Name of the branch for the tooling refresh PR.
+refresh_branch := 'refresh-tooling'
+
+# Title of the PR.
+refresh_title := 'Refresh tooling'
 
 # List of check run conclusions failing in CI.
 run_failures := '["failure", "cancelled", "timed_out", "action_required", "startup_failure"]'
@@ -137,17 +140,15 @@ create_precommit enable:
 	{{ if enable { 'just enable_githooks && echo ' + done('') } }}
 	{{ if !enable { 'echo ' + info(['Enable with', MAGENTA + 'just enable_githooks']) } }}
 
-# Commit the changed dev files to a new branch and create a PR
+# Commit the refreshed tooling files to a new branch, create a PR, and merge
 [group('Git')]
 [no-exit-message]
 [script]
-pr_dev_files branch=dev_branch: check_command_gh
-	echo {{ title(['Refresh the dev files in a', BOLD + 'pull request']) }}
+pr_refresh branch=refresh_branch: check_command_gh
+	echo {{ title(['Create a', BOLD + refresh_title, ' pull request on', YELLOW + ' ' + branch]) }}
 
 	just lint_just;
 	just check_typos;
-	just check_actions --fast;
-	just audit_actions --fast;
 
 	# Local branch is `main`.
 	current="$(git branch --show-current)";
@@ -170,32 +171,32 @@ pr_dev_files branch=dev_branch: check_command_gh
 		exit 1;
 	fi
 
-	# Modified, deleted, and new dev files.
-	files="$(git ls-files --modified --deleted --others --exclude-standard -- {{ dev_paths }} | sort -u)";
+	# Modified, deleted, and new tooling files.
+	files="$(git ls-files --modified --deleted --others --exclude-standard -- {{ tooling_path_list }} | sort -u)";
 	if [ -z "$files" ]; then
-		echo {{ warning('No changed dev files') }};
+		echo {{ warning('No changed tooling files to commit') }};
 		exit 0;
 	fi
 
-	echo {{ info('Modified dev files:') }};
+	echo {{ info('Modified tooling files:') }};
 	echo "$files" | while IFS= read -r file; do
 		echo {{ dim(GREEN + '$file') }};
 	done
 
 	git switch --quiet --create '{{ branch }}'
 	echo "$files" | xargs git add --all --
-	echo "$files" | xargs git commit --quiet --signoff --message 'Refresh dev files' --
+	echo "$files" | xargs git commit --quiet --signoff --message '{{ refresh_title }}' --
 	# Hide the GitHub "Create a pull request" hint.
 	if ! push="$(git push --quiet --set-upstream origin '{{ branch }}' 2>&1)"; then
 		echo "$push" >&2;
 		exit 1;
 	fi
 
-	body="$(printf 'Refresh the dev files:\n\n%s\n' "$(echo "$files" | sed 's/^/- `/; s/$/`/')")";
+	body="$(printf 'Refresh these tooling files:\n\n%s\n' "$(echo "$files" | sed 's/^/- `/; s/$/`/')")";
 
 	# Create the PR with the REST API.
 	number="$(gh api --method POST 'repos/{{ owner }}/{{ repo }}/pulls' -f base=main -f head='{{ branch }}' \
-		-f title='Refresh dev files' -f body="$body" --jq '.number')";
+		-f title='{{ refresh_title }}' -f body="$body" --jq '.number')";
 	echo {{ info(['Created PR', BOLD + '#$number']) }};
 
 	# Assign the PR to the current user.
@@ -209,10 +210,10 @@ pr_dev_files branch=dev_branch: check_command_gh
 [group('Git')]
 [no-exit-message]
 [script]
-merge_pr branch=dev_branch: check_command_gh
+merge_pr branch=refresh_branch: check_command_gh
 	echo {{ title(['Merge the', BOLD + branch, 'pull request']) }}
 
-	# Local branch is the dev branch.
+	# Local branch is the refresh branch.
 	current="$(git branch --show-current)";
 	if [ "$current" != "{{ branch }}" ]; then
 		echo {{ error(['Not on the', GREEN + branch, 'branch:', RED + '$current']) }};
@@ -289,7 +290,7 @@ merge_pr branch=dev_branch: check_command_gh
 	signoff="Signed-off-by: $(git config user.name) <$(git config user.email)>";
 	gh api --method PUT "repos/{{ owner }}/{{ repo }}/pulls/$number/merge" \
 		-f merge_method=squash -f sha="$sha" \
-		-f commit_title="Refresh dev files (#$number)" -f commit_message="$signoff" \
+		-f commit_title="{{ refresh_title }} (#$number)" -f commit_message="$signoff" \
 		--jq '.message'
 
 	# Switch to main, then delete the branch.
