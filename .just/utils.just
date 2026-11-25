@@ -67,7 +67,7 @@ echo(text) := 'echo ' + text
 # - To set the title to "Running": `{{ set_title('Running') }}`
 # - To reset the title: `echo "{{ reset_title('') }}"`
 # - or: `{{ set_title('') }}`
-set_title(title) := if env('CI', '') == '' { "printf '" + '\033]0;%s\007' + "' " + '"' + title + '"' }
+set_title(title) := if env('CI', '') == '' { "printf '" + '\033]0;%s\007' + "' " + '"' + title + '"' } else { '' }
 reset_title := "\u{1b}]0;\u{7}"
 
 ## Strings.
