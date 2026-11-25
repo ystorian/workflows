@@ -67,7 +67,7 @@ echo(text) := 'echo ' + text
 # - To set the title to "Running": `{{ set_title('Running') }}`
 # - To reset the title: `echo "{{ reset_title('') }}"`
 # - or: `{{ set_title('') }}`
-set_title(title) := "printf '" + '\033]0;%s\007' + "' " + '"' + title + '"'
+set_title(title) := if env('CI', '') == '' { "printf '" + '\033]0;%s\007' + "' " + '"' + title + '"' }
 reset_title := "\u{1b}]0;\u{7}"
 
 ## Strings.
@@ -366,7 +366,7 @@ check_just:
 check_markdown: check_command_bun
 	echo {{ title(['Check all', BOLD + 'markdown', 'files']) }}
 
-	bun x --bun markdownlint-cli2 "**/*.md" "#**/.terraform" "#**/data"
+	bun x --bun markdownlint-cli2 "**/*.md" "#**/.terraform" "#**/data" "#TODO.md"
 
 	echo {{ done('') }}
 
@@ -430,6 +430,13 @@ no_index dir='.':
 	# Terraform.
 	just no_index_dir "{{ absolute_path(dir + '/' + 'terraform/.terraform') }}"
 
+	echo {{ done('') }}
+
+# Disable content indexing on generated files, aka `Turbo Boost`
+[group('Utils')]
+[linux]
+[no-exit-message]
+no_index dir='.':
 	echo {{ done('') }}
 
 # Disable Spotlight indexing and Time Machine backups on a directory

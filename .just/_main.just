@@ -15,6 +15,8 @@ import 'ci.just'
 setup:
 	just no_index
 
+	just install_cargo_tools zizmor
+
 # Bump all dependencies
 [group('_')]
 bump:
