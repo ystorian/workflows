@@ -32,7 +32,7 @@ _common: &common
   # This file.
   - "!.github/filters.yaml"
 
-  # [shared] Common exclusions of CI files, for release filters.
+  # [shared] Exclusions of CI-only files, for test and release filters.
 _ci: &ci
   - "!deny.toml"
   - "!.gitignore"
@@ -46,9 +46,28 @@ _release: &release
 
 
 # CI: Ignore files only used in release.
+# This is the default filter, you may want to use `check` and `test` instead.
 ci:
   - *common
   - *release
+
+# CI check: Ignore files only used in release.
+check:
+  - *common
+  - *release
+
+# CI test: Ignore files not used by the tests.
+test:
+  - *common
+  - *release
+  - *ci
+  - "!.github/workflows/**"
+  - "!.github/pinact.yaml"
+  - "!.vscode/**"
+  - "!.podman/**"
+  - "!packager.*.toml"
+  - "!docs/**"
+  - "!samples/**"
 
 # Release: Ignore files only used in CI.
 release:
