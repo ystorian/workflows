@@ -9,8 +9,12 @@
 # - `.github/filters.yaml`
 #
 # Returns:
-# - On push: `run` is the result of the `filter` input.
-# - On other events: `run` is always `true`.
+# - `run`: result of the `filter` input.
+# - `ci`: result of the `check` and `test` filters.
+# - `check`: result of the CI `check` filter.
+# - `test`: result of the CI `test` filter.
+# - On push, an output is `true` when its filter matches.
+# - On other events, all outputs are `true`.
 
 name: Detect changes
 
@@ -23,8 +27,14 @@ on:
         default: ci
     outputs:
       run:
-        description: True when the filter matches.
+        description: True when the `filter` input matches.
         value: ${{ jobs.changes.outputs.run }}
+      check:
+        description: True when the `check` filter matches.
+        value: ${{ jobs.changes.outputs.check }}
+      test:
+        description: True when the `test` filter matches.
+        value: ${{ jobs.changes.outputs.test }}
 
 permissions: {}
 
@@ -39,6 +49,8 @@ jobs:
       run: >-
         ${{ steps.filter.outcome != 'success'
         || contains(steps.filter.outputs.changes, format('"{0}"', inputs.filter)) }}
+      check: ${{ steps.filter.outcome != 'success' || steps.filter.outputs.check == 'true' }}
+      test: ${{ steps.filter.outcome != 'success' || steps.filter.outputs.test == 'true' }}
     timeout-minutes: 1
 
     steps:

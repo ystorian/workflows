@@ -481,10 +481,10 @@ push_tag allow_dirty patch minor tag='' commit='':
 
 	just check_tag "$tag" {{ if allow_dirty { '--allow-dirty' } }}
 
-	echo {{ info(['Push the tag', BOLD + tag]) }}
+	echo {{ info(['Push the tag', BOLD + '$tag']) }}
 
-	git tag --sign {{ tag }} {{ commit }} --message "Release {{ tag }}"
-	git push origin refs/tags/{{ tag }}
+	git tag --sign "$tag" {{ commit }} --message "Release $tag"
+	git push origin "refs/tags/$tag"
 
 	echo {{ done('') }}
 
