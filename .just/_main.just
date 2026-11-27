@@ -20,6 +20,7 @@ setup:
 # Bump all dependencies
 [group('_')]
 bump:
+	just update_images
 	just update_actions
 	just audit_actions
 	just lint_just

@@ -291,11 +291,11 @@ test_var *variable:
 check_command command brew=[] cargo=[] macos=[] linux=[] windows=[] winget=[]:
 	if ! command -v {{ command }} >/dev/null 2>&1; then
 		echo {{ error(['The command', BOLD + command, 'is not available']) }};
-		{{ if brew { echo(info(['To install it with HomeBrew, run:', MAGENTA + 'just brew' + brew])) } }}
+		{{ if brew && os() != 'windows' { echo(info(['To install it with HomeBrew, run:', MAGENTA + 'just brew ' + brew])) } }}
 		{{ if macos && os() == 'macos' { echo(info(['To install it on macOS, run:', MAGENTA + macos])) } }}
 		{{ if linux && os() == 'linux' { echo(info(['To install it on Linux, run:', MAGENTA + linux])) } }}
 		{{ if windows && os() == 'windows' { echo(info(['To install it on Windows, run:', MAGENTA + windows])) } }}
-		{{ if winget { echo(info(['To install it on Windows, run:', MAGENTA + 'just winget ' + winget])) } }}
+		{{ if winget && os() == 'windows' { echo(info(['To install it on Windows, run:', MAGENTA + 'just winget ' + winget])) } }}
 		{{ if cargo { echo(info(['To install it, run:', MAGENTA + 'just cargo_install ' + cargo])) } }}
 		exit 1;
 	fi
@@ -527,8 +527,8 @@ winget id:
 
 # Install with Homebrew
 [group('Utils')]
-[macos]
 [private]
+[unix]
 brew formula:
 	brew install {{ formula }}
 
