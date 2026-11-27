@@ -149,7 +149,30 @@ pr_refresh branch=refresh_branch: check_command_gh
 
 	just lint_just;
 	just check_typos;
+	just check_pr_branch '{{ branch }}';
 
+	# Modified, deleted, and new tooling files.
+	files="$(git ls-files --modified --deleted --others --exclude-standard -- {{ tooling_path_list }} | sort -u)";
+	if [ -z "$files" ]; then
+		echo {{ warning('No changed tooling files to commit') }};
+		exit 0;
+	fi
+
+	echo {{ info('Modified tooling files:') }};
+	echo "$files" | while IFS= read -r file; do
+		echo {{ dim(GREEN + '$file') }};
+	done
+
+	body="$(printf 'Refresh these tooling files:\n\n%s\n' "$(echo "$files" | sed 's/^/- `/; s/$/`/')")";
+
+	just create_pr '{{ branch }}' '{{ refresh_title }}' "$body" $files
+
+# Check that `main` is synced and `branch` is new
+[group('Git')]
+[no-exit-message]
+[private]
+[script]
+check_pr_branch branch:
 	# Local branch is `main`.
 	current="$(git branch --show-current)";
 	if [ "$current" != 'main' ]; then
@@ -171,32 +194,24 @@ pr_refresh branch=refresh_branch: check_command_gh
 		exit 1;
 	fi
 
-	# Modified, deleted, and new tooling files.
-	files="$(git ls-files --modified --deleted --others --exclude-standard -- {{ tooling_path_list }} | sort -u)";
-	if [ -z "$files" ]; then
-		echo {{ warning('No changed tooling files to commit') }};
-		exit 0;
-	fi
-
-	echo {{ info('Modified tooling files:') }};
-	echo "$files" | while IFS= read -r file; do
-		echo {{ dim(GREEN + '$file') }};
-	done
-
+# Commit `files` to a new `branch`, create a PR, and merge
+[group('Git')]
+[no-exit-message]
+[private]
+[script]
+create_pr branch pr_title body +files: check_command_gh
 	git switch --quiet --create '{{ branch }}'
-	echo "$files" | xargs git add --all --
-	echo "$files" | xargs git commit --quiet --signoff --message '{{ refresh_title }}' --
+	git add --all -- {{ files }}
+	git commit --quiet --signoff --message {{ quote(pr_title) }} -- {{ files }}
 	# Hide the GitHub "Create a pull request" hint.
 	if ! push="$(git push --quiet --set-upstream origin '{{ branch }}' 2>&1)"; then
 		echo "$push" >&2;
 		exit 1;
 	fi
 
-	body="$(printf 'Refresh these tooling files:\n\n%s\n' "$(echo "$files" | sed 's/^/- `/; s/$/`/')")";
-
 	# Create the PR with the REST API.
 	number="$(gh api --method POST 'repos/{{ owner }}/{{ repo }}/pulls' -f base=main -f head='{{ branch }}' \
-		-f title='{{ refresh_title }}' -f body="$body" --jq '.number')";
+		-f title={{ quote(pr_title) }} -f body={{ quote(body) }} --jq '.number')";
 	echo {{ info(['Created PR', BOLD + '#$number']) }};
 
 	# Assign the PR to the current user.
@@ -204,7 +219,7 @@ pr_refresh branch=refresh_branch: check_command_gh
 		-f "assignees[]=$(gh api user --jq '.login')" --jq '.html_url')";
 	echo {{ info('$pr') }};
 
-	just merge_pr {{ branch }}
+	just merge_pr '{{ branch }}'
 
 # Wait for CI, then squash and merge the PR for `branch`
 [group('Git')]
@@ -281,7 +296,10 @@ merge_pr branch=refresh_branch: check_command_gh
 	fi
 
 	# Squash and merge the open PR.
-	number="$(gh api 'repos/{{ owner }}/{{ repo }}/pulls?head={{ owner }}:{{ branch }}&state=open' --jq '.[0].number')";
+	pr="$(gh api 'repos/{{ owner }}/{{ repo }}/pulls?head={{ owner }}:{{ branch }}&state=open' \
+		--jq '.[0] | "\(.number) \(.title)"')";
+	number="${pr%% *}";
+	pr_title="${pr#* }";
 	if [ -z "$number" ] || [ "$number" = 'null' ]; then
 		echo {{ error(['No open PR for', BOLD + branch]) }};
 		exit 1;
@@ -290,7 +308,7 @@ merge_pr branch=refresh_branch: check_command_gh
 	signoff="Signed-off-by: $(git config user.name) <$(git config user.email)>";
 	gh api --method PUT "repos/{{ owner }}/{{ repo }}/pulls/$number/merge" \
 		-f merge_method=squash -f sha="$sha" \
-		-f commit_title="{{ refresh_title }} (#$number)" -f commit_message="$signoff" \
+		-f commit_title="$pr_title (#$number)" -f commit_message="$signoff" \
 		--jq '.message'
 
 	# Switch to main, then delete the branch.
@@ -410,13 +428,60 @@ check_tag tag allow_dirty:
 	echo {{ info([GREEN + 'Ready to tag for release:', repo, GREEN + BOLD + tag]) }}
 
 # Push an annotated release tag `v#.#.#`
+[arg('patch', long='patch', flag, help='Push the next patch tag v#.#.<next>')]
+[arg('minor', long='minor', flag, help='Push the next minor tag v.#.<next>.0')]
 [arg('allow_dirty', long='allow-dirty', flag, help='Allow dirty state with uncommitted changes')]
 [group('Git')]
 [no-exit-message]
-push_tag allow_dirty tag commit='':
-	just check_tag {{ tag }} {{ if allow_dirty { '--allow-dirty' } }}
+[script]
+push_tag allow_dirty patch minor tag='' commit='':
+	tag='{{ tag }}';
+	bump='{{ if patch { 'patch' } else if minor { 'minor' } else { '' } }}';
 
-	echo {{ title(['Push the tag', BOLD + tag]) }}
+	# Check the bump flags.
+	if [ '{{ patch }}' != '' ] && [ '{{ minor }}' != '' ]; then
+		echo {{ error(['Use either', BOLD + '--patch', 'or', BOLD + '--minor']) }};
+		exit 1;
+	fi
+	if [ -n "$bump" ] && [ -n "$tag" ]; then
+		echo {{ error(['Use either a tag or', BOLD + '--$bump']) }};
+		exit 1;
+	fi
+	if [ -n "$bump" ] && [ -f 'Cargo.toml' ]; then
+		echo {{ error(['Cannot bump a Rust repo: set the version in', BOLD + 'Cargo.toml']) }};
+		exit 1;
+	fi
+
+	# Bump the highest remote tag.
+	if [ -n "$bump" ]; then
+		latest_tag="$(git ls-remote --tags --refs origin 'v*' | sed 's|.*refs/tags/||' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)";
+		version="${latest_tag:-v0.0.0}";
+		version="${version#v}";
+		major="${version%%.*}";
+		rest="${version#*.}";
+		minor="${rest%%.*}";
+		patch="${rest#*.}";
+		if [ "$bump" = 'patch' ]; then
+			tag="v$major.$minor.$((patch + 1))";
+		else
+			tag="v$major.$((minor + 1)).0";
+		fi;
+		echo {{ info(['Next tag after', YELLOW + '${latest_tag:-none}', 'is', GREEN + BOLD + '$tag']) }};
+	fi
+
+	# Use the `Cargo.toml` version if no tag.
+	if [ -z "$tag" ]; then
+		if [ ! -f 'Cargo.toml' ]; then
+			echo {{ error(['Missing tag, and no', BOLD + 'Cargo.toml']) }};
+			exit 1;
+		fi;
+		cargo_version="$(tomli query --filepath Cargo.toml workspace.package.version 2>/dev/null || tomli query --filepath Cargo.toml package.version)";
+		tag="v$(echo "$cargo_version" | tr -d '"' | xargs)";
+	fi
+
+	just check_tag "$tag" {{ if allow_dirty { '--allow-dirty' } }}
+
+	echo {{ info(['Push the tag', BOLD + tag]) }}
 
 	git tag --sign {{ tag }} {{ commit }} --message "Release {{ tag }}"
 	git push origin refs/tags/{{ tag }}

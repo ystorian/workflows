@@ -541,4 +541,4 @@ check_command_pinact:
 [no-exit-message]
 [private]
 check_command_zizmor:
-	just check_command zizmor -m='just install_cargo_tools' -w='just install_cargo_tools'
+	just check_command zizmor --cargo='zizmor'
